@@ -39,8 +39,9 @@ and how to swap it. Brand rules (fonts, colours, pace) live in each project's `S
 ## Free by design, upgrade paths documented
 
 Every paid or GPU route we evaluated is recorded in [`docs/UPGRADES.md`](docs/UPGRADES.md): ElevenLabs, Higgsfield,
-Kling/Kie, Veo, Suno, Remotion, Blender on an RTX GPU, stock libraries. What each adds, what it costs, and the
-trigger that would make it worth paying for.
+Kling/Kie, Gemini Omni video, Suno, Remotion, Blender on an RTX GPU, stock libraries. What each adds, what it costs, and the
+trigger that would make it worth paying for. Each one with an API is already wired in [`tools/paid/`](tools/paid/README.md):
+add a key (or a GPU for Blender) and it runs.
 
 ## Craft notes
 

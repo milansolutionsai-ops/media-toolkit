@@ -78,12 +78,19 @@ OBS profile + scene collection backup and a 9:16 framing guide. Copy `obs/` into
 `%APPDATA%/obs-studio/basic/profiles/` and `.../scenes/` with OBS closed, then set the recording path to your
 project's `RECORDINGS/` folder.
 
+## 8. Paid routes (optional)
+
+Scripts in `tools/paid/` (see its README). Blender renders need Blender installed and ideally an NVIDIA GPU.
+
 ## Keys, summarised
 
 | Key | File | Needed for |
 |---|---|---|
 | `GROQ_API_KEY` | `tools/editor/.env` | free cloud transcription (optional) |
 | `GEMINI_TTS_API_KEY` | `.env.local` | Gemini voice (optional) |
-| `ELEVENLABS_API_KEY` | `.env.local` | ElevenLabs voice (optional, paid) |
+| `ELEVENLABS_API_KEY` | `.env.local` | ElevenLabs voice and SFX (optional, paid) |
+| `KIE_API_KEY` | `.env.local` | Kling, Seedream, Suno (optional, paid) |
+| `HF_KEY` | `.env.local` | Higgsfield API, `id:secret` (optional, paid) |
+| `GEMINI_VIDEO_API_KEY` | `.env.local` | Gemini Omni video, billing on (optional, paid) |
 
 Both files are gitignored. Never commit a key.

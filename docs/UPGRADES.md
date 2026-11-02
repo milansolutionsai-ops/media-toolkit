@@ -4,6 +4,8 @@ This toolkit is free by design: every step runs locally or on a free tier, on a 
 
 Status key: **skipped** (evaluated, not worth it now), **parked** (worth it once a trigger hits), **candidate** (first in line if money is spent).
 
+**Runnable:** every route with an API has a script in [`tools/paid/`](../tools/paid/README.md). Add the key to `.env.local`, run it, add `--go` to spend.
+
 ## Transcription
 
 | Option | Adds over Groq / faster-whisper | Cost | Status | Why |
@@ -50,11 +52,11 @@ Status key: **skipped** (evaluated, not worth it now), **parked** (worth it once
 
 | Option | Adds | Cost | Status | Why |
 |---|---|---|---|---|
-| Higgsfield Katana | A claude.ai connector (`/katana`) that recreates a reference edit's style with your product. Also AI footage. | Higgsfield credits: ~$15-19/month Starter, ~$39-59/month Plus (sources conflict) | skipped | It runs in chat by hand, outside the pipeline. It copies someone else's look instead of the brand. The storyboard step plus a reference video gets most of the value for free. Revisit only if free credits allow a 15-minute A/B test. |
+| Higgsfield Katana | A claude.ai connector (`/katana`) that recreates a reference edit's style with your product. Also AI footage. | Higgsfield credits: ~$15-19/month Starter, ~$39-59/month Plus (sources conflict) | skipped | It runs in chat by hand, outside the pipeline. It copies someone else's look instead of the brand. The storyboard step plus a reference video gets most of the value for free. Revisit only if free credits allow a 15-minute A/B test. The separate Higgsfield API (one key, 50+ models) is wired: `tools/paid/higgsfield.py`. |
 | Higgsfield 3D characters (the animated-sitcom reel style) | Consistent generative 3D characters | Higgsfield credits | skipped | Character consistency is the hard part, and the look is now crowded. The writing patterns were kept instead. |
 | Claude Motion | `/motion` in claude.ai chat, editable animation to MP4 | included in the Claude plan | parked | It doesn't run in Claude Code and can't sync graphics to spoken words. HyperFrames does both. |
 | Remotion (React to video) | A mature alternative renderer | free for individuals and companies of up to 3 people; $25 per seat per month above that, or $0.01 per render with a $100/month minimum | skipped | HyperFrames (Apache-2.0) has no company licence trigger. |
-| Blender on an NVIDIA GPU | Real 3D scenes, product shots, rendered camera moves | needs an NVIDIA RTX card. 12-16 GB VRAM is workable; a 32 GB RTX 5090 is the high end. Card price not verified. | parked | Nothing in this pipeline needs 3D yet. Blender's Cycles renderer is far slower on CPU or an AMD iGPU. |
+| Blender on an NVIDIA GPU | Real 3D scenes, product shots, rendered camera moves | needs an NVIDIA RTX card. 12-16 GB VRAM is workable; a 32 GB RTX 5090 is the high end. Card price not verified. | parked | Nothing in this pipeline needs 3D yet. Blender's Cycles renderer is far slower on CPU or an AMD iGPU. `tools/paid/blender_render.py` renders on whatever GPU is present, local or rented. Note: the "blender" in Nate Herk's videos is a kitchen-blender product shot (two AI stills, then Kling), not Blender 3D; that recipe is in `tools/paid/README.md`. |
 
 ## AI video and b-roll generation
 
@@ -62,7 +64,7 @@ Status key: **skipped** (evaluated, not worth it now), **parked** (worth it once
 |---|---|---|---|---|
 | Kling through Kie.ai | Camera moves and moving b-roll from stills | Kie credits, price not verified | **candidate** | It's the fallback when footage can't be shot. Herk's kit has a small client for it. |
 | Seedream through Kie.ai | Stills from a logo or reference | Kie credits, price not verified | parked | Pairs with Kling. |
-| Google Veo | Text-to-video b-roll | price not verified | parked | The toolkit holds a Veo prompting guide as the documented fallback. |
+| Gemini Omni Flash (replaced Veo) | Text or image to video with sound, first/last frame, conversational edits | paid only: the free tier is capped at 0; price not verified | parked | Veo 3.1 Preview was shut down in the Gemini API on 2026-10-22. Script: `tools/paid/omni_video.py` (request shape verified 2026-11-02). |
 
 ## Stock footage
 

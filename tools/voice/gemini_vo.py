@@ -7,8 +7,9 @@ Usage:
   python gemini_vo.py <project_dir> <voice> ["style direction"] [model]      (reads <project_dir>/VO_SCRIPT.md)
   python gemini_vo.py --text "one line" --out x.wav <voice> ["style"] [model]
 Voices: Charon, Puck, Kore, Fenrir, Orus, Alnilam, Sadaltager, Achird, Algieba... (30 prebuilt). Language is
-auto-detected (Spanish works). Delivery goes in the style string, never in the text: the text is read verbatim.
-Inline tags in the text are allowed: <short pause>, <long pause>, <laugh>, <sigh>.
+auto-detected (Spanish works). Sustained delivery (whispering, sarcastic, out of breath, warm and excited) goes in the
+style string and applies to the whole line: split a line to change delivery mid-scene. The text is read verbatim.
+Point-in-time tags go inline in the text: <short pause>, <long pause>, <laugh>, <sigh>, <cough>, <breath>.
 """
 import base64, json, os, re, subprocess, sys, time, urllib.error, urllib.request
 
