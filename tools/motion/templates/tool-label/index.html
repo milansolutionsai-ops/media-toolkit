@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script src="assets/motion.js"></script>
+    <style>
+      @font-face { font-family: "Plex"; src: url("assets/IBMPlexSans-Bold.ttf") format("truetype"); font-weight: 700; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: transparent; }
+      #root { position: relative; width: 1080px; height: 1920px; font-family: "Plex", sans-serif; }
+      #row { position: absolute; left: 0; width: 1080px; display: flex; align-items: center; justify-content: center; opacity: 0; }
+      #logo { width: 130px; height: 130px; border-radius: 30px; position: relative; z-index: 2;
+              box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45); object-fit: cover; }
+      #clip { overflow: hidden; height: 130px; display: flex; align-items: center; }
+      #name { padding-left: 28px; font-size: 92px; letter-spacing: -1px; color: #E9E8E4; white-space: nowrap;
+              text-shadow: 0 4px 24px rgba(0, 0, 0, 0.6); }
+    </style>
+  </head>
+  <body>
+    <!-- Overlay with alpha: render with  npx hyperframes render . --format mov -o renders/label.mov -->
+    <div id="root" data-composition-id="main" data-start="0" data-duration="2.6" data-width="1080" data-height="1920">
+      <div id="row" class="clip" data-start="0" data-duration="2.6" data-track-index="0">
+        <img id="logo" src="assets/logo.svg" alt="" />
+        <div id="clip"><div id="name"></div></div>
+      </div>
+    </div>
+    <script>
+      // ── EDIT HERE ───────────────────────────────────────────────
+      // Starts on the word that names the tool (overlay start_in_output = that word's time).
+      const NAME = "Claude Code";   // the tool's name as written
+      const LOGO = "assets/logo.svg"; // its logo (png/svg) in assets/, square
+      const Y = 1150;               // vertical centre (chest zone, clear of face and captions)
+      const END = 2.6;              // hold time; also data-duration above (2 places)
+      // ────────────────────────────────────────────────────────────
+      document.getElementById("name").textContent = NAME;
+      document.getElementById("logo").src = LOGO;
+      const row = document.getElementById("row");
+      row.style.top = `${Y - 65}px`;
+
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      // logo pops in alone, centred
+      tl.fromTo("#row", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.4, ease: Motion.ease(0.45, "type") }, 0);
+      tl.fromTo("#logo", { scale: 0.6 }, { scale: 1, duration: 0.45, ease: Motion.ease(0.45, "ui") }, 0);
+      // then the name slides out from behind the logo while the pair re-centres
+      tl.fromTo("#clip", { width: 0 }, { width: () => document.getElementById("name").offsetWidth, duration: 0.45,
+        ease: Motion.ease(0.45, "type") }, 0.4);
+      tl.fromTo("#name", { x: -120 }, { x: 0, duration: 0.45, ease: Motion.ease(0.45, "type") }, 0.4);
+      // leave
+      tl.to("#row", { opacity: 0, y: -30, duration: 0.25, ease: "power2.in" }, END - 0.25);
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

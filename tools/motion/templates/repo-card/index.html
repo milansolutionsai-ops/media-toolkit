@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script src="assets/motion.js"></script>
+    <style>
+      @font-face { font-family: "Plex"; src: url("assets/IBMPlexSans-Bold.ttf") format("truetype"); font-weight: 700; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: transparent; }
+      #root { position: relative; width: 1080px; height: 1920px; font-family: "Plex", sans-serif; }
+      /* GitHub dark-theme look, so viewers recognise it */
+      #card { position: absolute; left: 81px; width: 918px; padding: 44px 48px; border-radius: 22px; opacity: 0;
+              background: #0D1117; border: 2px solid #30363D; box-shadow: 0 16px 60px rgba(0, 0, 0, 0.55); color: #E6EDF3; }
+      #head { display: flex; align-items: center; gap: 18px; font-size: 40px; }
+      #head svg { width: 44px; height: 44px; flex: none; }
+      #owner { color: #4493F8; font-weight: 400; }
+      #repo { color: #4493F8; }
+      #badge { margin-left: 6px; font-size: 24px; color: #9198A1; border: 2px solid #30363D; border-radius: 999px; padding: 4px 16px; }
+      #desc { margin-top: 26px; font-size: 34px; line-height: 1.35; color: #9198A1; font-weight: 400; }
+      #meta { margin-top: 30px; display: flex; gap: 46px; font-size: 30px; color: #9198A1; align-items: center; }
+      #meta span { display: flex; align-items: center; gap: 12px; }
+      .dot { width: 22px; height: 22px; border-radius: 50%; display: inline-block; }
+      #meta svg { width: 30px; height: 30px; }
+    </style>
+  </head>
+  <body>
+    <!-- Overlay with alpha: render with  npx hyperframes render . --format mov -o renders/repo.mov -->
+    <div id="root" data-composition-id="main" data-start="0" data-duration="3.5" data-width="1080" data-height="1920">
+      <div id="card" class="clip" data-start="0" data-duration="3.5" data-track-index="0">
+        <div id="head">
+          <svg viewBox="0 0 16 16" fill="#9198A1"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.71 1.71.75.75 0 0 1-1.06 1.06A2.5 2.5 0 0 1 2 11.5Zm10.5-1h-8a1 1 0 0 0-1 1v6.71A2.5 2.5 0 0 1 4.5 9h8Z"/></svg>
+          <div><span id="owner"></span> / <span id="repo"></span></div>
+          <div id="badge">Public</div>
+        </div>
+        <div id="desc"></div>
+        <div id="meta">
+          <span><i class="dot" id="langdot"></i><b id="lang" style="font-weight:400"></b></span>
+          <span><svg viewBox="0 0 16 16" fill="#9198A1"><path d="M8 .25a.75.75 0 0 1 .67.42l1.88 3.8 4.2.61a.75.75 0 0 1 .41 1.28l-3.04 2.96.72 4.18a.75.75 0 0 1-1.09.79L8 12.31l-3.75 1.98a.75.75 0 0 1-1.09-.79l.72-4.18L.84 6.36a.75.75 0 0 1 .41-1.28l4.2-.61L7.33.67A.75.75 0 0 1 8 .25Z"/></svg><b id="stars" style="font-weight:400"></b></span>
+          <span><svg viewBox="0 0 16 16" fill="#9198A1"><path d="M5 5.37v.88c0 .41.34.75.75.75h4.5a.75.75 0 0 0 .75-.75v-.88a2.25 2.25 0 1 1 1.5 0v.88A2.25 2.25 0 0 1 10.25 8.5h-1.5v2.13a2.25 2.25 0 1 1-1.5 0V8.5h-1.5A2.25 2.25 0 0 1 3.5 6.25v-.88a2.25 2.25 0 1 1 1.5 0ZM5 3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Zm6.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm-3 8.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0Z"/></svg><b id="forks" style="font-weight:400"></b></span>
+        </div>
+      </div>
+    </div>
+    <script>
+      // ── EDIT HERE (copy the real numbers from the repo page; never invent them) ──
+      const REPO = { owner: "heygen-com", name: "hyperframes",
+                     desc: "Write HTML. Render video. Built for agents.",
+                     lang: "TypeScript", langColor: "#3178C6", stars: "63k", forks: "" };  // demo: stars as seen 2026-10-14; empty = hidden
+      const Y = 1060;   // top of the card (chest zone)
+      const END = 3.5;  // also data-duration above (2 places)
+      // ─────────────────────────────────────────────────────────────────────────
+      const $ = (id) => document.getElementById(id);
+      $("owner").textContent = REPO.owner; $("repo").textContent = REPO.name; $("desc").textContent = REPO.desc;
+      $("lang").textContent = REPO.lang; $("langdot").style.background = REPO.langColor;
+      $("stars").textContent = REPO.stars; $("forks").textContent = REPO.forks;
+      if (!REPO.forks) $("forks").parentElement.style.display = "none";
+      $("card").style.top = `${Y}px`;
+
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+      tl.fromTo("#card", { opacity: 0, y: 38 }, { opacity: 1, y: 0, duration: 0.4, ease: Motion.ease(0.45, "type") }, 0);
+      tl.fromTo("#card", { scale: 0.97 }, { scale: 1, duration: 0.45, ease: Motion.ease(0.45, "ui") }, 0);
+      tl.to("#card", { opacity: 0, y: -30, duration: 0.25, ease: "power2.in" }, END - 0.25);
+      window.__timelines["main"] = tl;
+      tl.seek(0);
+    </script>
+  </body>
+</html>

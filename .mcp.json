@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "earshot": {
+      "command": "tools/audio/earshot/.venv/Scripts/python.exe",
+      "args": ["-m", "earshot", "mcp"],
+      "env": {
+        "EARSHOT_THREADS": "4",
+        "GEMINI_API_KEY": "",
+        "GOOGLE_API_KEY": ""
+      }
+    }
+  }
+}

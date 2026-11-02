@@ -1,0 +1,35 @@
+# media and renders stay local
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.wav
+*.m4a
+*.mp3
+*.ogg
+*.png
+!tools/recording/framing-guide-9x16.png
+# environments, caches, secrets
+node_modules/
+.venv/
+__pycache__/
+*.egg-info/
+.hyperframes/
+.env
+.env.local
+*.log
+# third-party installs and downloads (see SETUP.md)
+tools/voice/VoiceStudio/
+tools/voice/kokoro/
+tools/voice/test/
+tools/audio/earshot/
+tools/audio/sfx/openverse/
+tools/motion/references/*/
+# generated edit artefacts
+**/clean/
+**/clips_graded/
+**/clips_preview/
+**/clips_draft/
+**/renders/
+**/verify/
+tools/editor/models/*.rnnn
