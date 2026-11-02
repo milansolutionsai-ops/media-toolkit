@@ -26,6 +26,9 @@ cd tools/editor && uv sync
 uv run python -m unittest discover -s tests
 ```
 
+- Voice cleanup model: download `sh.rnnn` from
+  [GregorR/rnnoise-models](https://github.com/GregorR/rnnoise-models/tree/master/somnolent-hogwash-2018-09-01)
+  into `tools/editor/models/` (not redistributed here).
 - Transcription key (free): put `GROQ_API_KEY=...` in `tools/editor/.env`. No key → `--backend local` (faster-whisper, CPU).
 - Use it as a Claude Code skill: link `~/.claude/skills/video-use` to `tools/editor`
   (Windows: `mklink /J "%USERPROFILE%\.claude\skills\video-use" "<path>\media-toolkit\tools\editor"`).
