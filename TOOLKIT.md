@@ -19,6 +19,7 @@ The repo is the engine only; nothing project-specific is ever committed here.
 | `tools/audio/` | **Sound**: beat grid + build-ups, music splicer, SFX generator, real SFX fetch (Openverse), **earshot** (the agent hears: rank, timeline, critique), licensed music, mixing recipes. Voice cleanup lives in the editor. |
 | `tools/voice/` | **Voice generation**: Kokoro (free, local), Gemini 3.8 Flash TTS (free tier), VoiceStudio (local cloning, parked), ElevenLabs (paid). |
 | `tools/paid/` | **Paid routes, ready to run**: Kie (Kling, Seedream, Suno), Higgsfield API, Gemini Omni video, ElevenLabs SFX, Blender GPU render. Dry run until `--go`. Only when `docs/UPGRADES.md` says the trigger is met. |
+| `tools/review/` | **Review app** (local Frame.io): mark exact frames/sound in a render, notes reach Claude through a hook, before/after fix check. `review.py register/claim/show/list`. Setup: `install.py`. |
 | `tools/recording/` | **Recording**: OBS profile backup, 9:16 framing guide. |
 | `../<project>/` | One folder per project, outside the repo. Brand rules live there (`STYLE_GUIDE.md`), never in `tools/`. |
 | `docs/` | `knowledge/ad-craft.md` (ad research, script, music, SFX and edit techniques by pipeline stage), `UPGRADES.md` (every paid / GPU route we found, for the day the free one isn't enough), `windows-setup.md`. |
