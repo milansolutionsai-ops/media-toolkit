@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 CLAIM_STALE_HOURS = 4
+SAFE_NAME = r"[A-Za-z0-9_.-]+"
 INDEX_NAME = "_review-index.json"
 DEFAULT_WINDOWS = {"picture_frames": 4, "sound_seconds": 2, "cut_seconds": 1}
 STATUS_LABELS = {
@@ -102,7 +103,7 @@ def add_round(vdir: Path, fixes: dict | None) -> int:
     if fixes is not None:
         save_json_atomic(vdir / f"fixes-r{n}.json", fixes)
     v["rounds"].append({"n": n, "created": _now(), "sent_at": None, "has_fixes": fixes is not None})
-    v["status"] = "waiting" if n == 1 else "fixes_ready"
+    v["status"] = "fixes_ready" if fixes is not None else "waiting"
     _save_video(vdir, v)
     return n
 

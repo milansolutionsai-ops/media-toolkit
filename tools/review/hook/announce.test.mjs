@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "announce.mjs");
@@ -30,7 +30,8 @@ test("announces unclaimed sent feedback", () => {
   const r = run(root, join(root, "milan-content"));
   assert.equal(r.status, 0);
   assert.match(r.stdout, /Feedback ready: milan-content \/ 03 X, First cut, 4 notes\./);
-  assert.match(r.stdout, /review\.py claim milan-content\/03-x/);
+  const cli = resolve(dirname(SCRIPT), "..", "review.py").replace(/\\/g, "/");
+  assert.ok(r.stdout.includes(`python "${cli}" claim milan-content/03-x`), r.stdout);
 });
 
 test("silent outside the workspace", () => {

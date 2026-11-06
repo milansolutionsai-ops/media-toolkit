@@ -21,10 +21,9 @@ def make_shortcut() -> Path:
         "$s.TargetPath=$env:TGT;$s.Arguments='\"'+$env:ARG+'\"';$s.WorkingDirectory=$env:WD;"
         "$s.IconLocation=$env:ICO;$s.Description='Review videos frame by frame';$s.Save()"
     )
-    edge = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
     env = dict(os.environ, LNK=str(lnk), TGT=str(pyw if pyw.exists() else sys.executable),
                ARG=str(HERE / "launch.pyw"), WD=str(HERE),
-               ICO=f"{edge},0" if os.path.exists(edge) else r"%SystemRoot%\System32\imageres.dll,18")
+               ICO=f"{HERE / 'icon.ico'},0")
     subprocess.run(["powershell", "-NoProfile", "-Command", ps], env=env, check=True)
     return lnk
 

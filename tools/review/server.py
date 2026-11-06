@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
+import secrets
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -79,13 +80,19 @@ def handle_send(root: Path, vdir: Path, body: dict) -> dict:
     n = int(body.get("round", 0))
     if n != store.latest_round(v) or v["status"] not in ("waiting", "fixes_ready"):
         raise ValueError("this round can't be sent")
-    notes = body.get("notes") or []
+    total = (store.read_json(vdir / f"r{n}" / "sprite.json", {}) or {}).get("frames") or 10**9
     verdicts = {str(k): val for k, val in (body.get("verdicts") or {}).items() if val in ("fixed", "not-fixed")}
-    for nt in notes:
-        nt["round"], nt["author"] = n, "Milan"
-        nt["start"], nt["end"] = int(nt["start"]), int(nt["end"])
-        if nt.get("tag") not in ("picture", "sound", "cut"):
-            raise ValueError("bad tag")
+    notes = []
+    for raw in body.get("notes") or []:
+        nid = raw.get("id") or secrets.token_hex(3)
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", str(nid)):
+            raise ValueError("bad note id")
+        if raw.get("tag") not in ("picture", "sound", "cut") or not str(raw.get("text", "")).strip():
+            raise ValueError("a note needs a tag and text")
+        a, b = sorted((int(raw["start"]), int(raw["end"])))
+        a, b = max(0, min(a, total - 1)), max(0, min(b, total - 1))
+        notes.append({"id": str(nid), "round": n, "start": a, "end": b, "tag": raw["tag"],
+                      "text": str(raw["text"]).strip(), "author": "Milan"})
     status = store.apply_send(vdir, n, notes, verdicts)
     frames = sorted({f for nt in notes if nt["tag"] in ("picture", "cut")
                      for f in (nt["start"], (nt["start"] + nt["end"]) // 2, nt["end"])})
@@ -100,6 +107,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def log_message(self, *args):  # silent: runs without a console
         pass
+
+    def _trusted(self) -> bool:
+        """Only this machine's own pages: blocks other sites and DNS rebinding from reading or sending."""
+        port = self.server.server_address[1]
+        ok = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        if self.headers.get("Host") not in ok:
+            return False
+        origin = self.headers.get("Origin")
+        return origin is None or origin in {f"http://{h}" for h in ok}
 
     def _json(self, data, code=200):
         body = json.dumps(data).encode()
@@ -156,6 +172,8 @@ class Handler(BaseHTTPRequestHandler):
             pass  # the player cancels range requests all the time
 
     def do_GET(self):
+        if not self._trusted():
+            return self._json({"error": "forbidden"}, 403)
         path = unquote(urlparse(self.path).path)
         if path == "/api/health":
             return self._json({"ok": True})
@@ -181,6 +199,8 @@ class Handler(BaseHTTPRequestHandler):
         return self._404()
 
     def do_POST(self):
+        if not self._trusted():
+            return self._json({"error": "forbidden"}, 403)
         path = unquote(urlparse(self.path).path)
         m = re.fullmatch(rf"/api/videos/({NAME})/({NAME})/send", path)
         vdir = _vdir(self.root, *m.groups()) if m else None

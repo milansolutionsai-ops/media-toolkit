@@ -19,8 +19,16 @@ X264_INTRA = ["-c:v", "libx264", "-crf", "16", "-preset", "veryfast", "-g", "1",
               "-pix_fmt", "yuv420p"]
 
 
+class MediaError(Exception):
+    pass
+
+
 def _run(cmd: list[str]) -> bytes:
-    return subprocess.run(cmd, check=True, capture_output=True).stdout
+    r = subprocess.run(cmd, capture_output=True)
+    if r.returncode:
+        err = r.stderr.decode(errors="replace").strip().splitlines()
+        raise MediaError(f"{cmd[0]} failed: {' | '.join(err[-3:]) or 'exit ' + str(r.returncode)}")
+    return r.stdout
 
 
 def probe(path: Path) -> dict:
@@ -132,6 +140,11 @@ def make_fixcheck(before: Path, after: Path, out_dir: Path, note_id: str, tag: s
     pb, pa = probe(before), probe(after)
     b0, b1 = pad_window(tag, before_rng, fr, pb["frames"], windows)
     a0, a1 = pad_window(tag, after_rng, fr, pa["frames"], windows)
+    if b0 > b1 or a0 > a1:
+        bad, n = (before_rng, pb["frames"]) if b0 > b1 else (after_rng, pa["frames"])
+        raise ValueError(f"note {note_id}: frames {bad[0]}-{bad[1]} are past the end of the render ({n} frames); "
+                         f"give 'before'/'after' ranges in the fixes file")
+    size = f"scale={pb['width']}:{pb['height']}"
     stack = "hstack" if orientation == "vertical" else "vstack"
     vtrim = lambda i, s, e: f"[{i}:v]trim=start_frame={s}:end_frame={e + 1},setpts=PTS-STARTPTS"
     inputs = ["-i", str(before), "-i", str(after)]
@@ -149,7 +162,7 @@ def make_fixcheck(before: Path, after: Path, out_dir: Path, note_id: str, tag: s
             f"{vtrim(0, b0, b1)}[v0]", f"{aseg(0, pb['has_audio'], b0, b1)}[a0]",
             f"color=black:s={w}x{h}:r={fps}:d={GAP_SECONDS},format=yuv420p[vg]",
             f"anullsrc=r=48000:cl=stereo,atrim=duration={GAP_SECONDS}[ag]",
-            f"{vtrim(1, a0, a1)},scale={w}:{h}[v1]", f"{aseg(1, pa['has_audio'], a0, a1)}[a1]",
+            f"{vtrim(1, a0, a1)},{size}[v1]", f"{aseg(1, pa['has_audio'], a0, a1)}[a1]",
             "[v0][a0][vg][ag][v1][a1]concat=n=3:v=1:a=1[v][a]",
         ])
         _tmp_then_replace(out_dir / name, lambda tmp: _run(
@@ -159,14 +172,14 @@ def make_fixcheck(before: Path, after: Path, out_dir: Path, note_id: str, tag: s
 
     if tag == "picture" and max(b1 - b0, a1 - a0) + 1 <= PAIRS_MAX_FRAMES:
         pattern = out_dir / f"{note_id}-%03d.jpg"
-        graph = f"{vtrim(0, b0, b1)}[v0];{vtrim(1, a0, a1)}[v1];[v0][v1]{stack}=inputs=2[v]"
+        graph = f"{vtrim(0, b0, b1)}[v0];{vtrim(1, a0, a1)},{size}[v1];[v0][v1]{stack}=inputs=2[v]"
         _run(["ffmpeg", "-y", "-v", "error", *inputs, "-filter_complex", graph, "-map", "[v]",
               "-q:v", "2", "-start_number", "0", str(pattern)])
         files = sorted(p.name for p in out_dir.glob(f"{note_id}-*.jpg"))
         return {"kind": "pairs", "files": files}
 
     name = f"{note_id}.mp4"
-    graph = f"{vtrim(0, b0, b1)}[v0];{vtrim(1, a0, a1)}[v1];[v0][v1]{stack}=inputs=2[v]"
+    graph = f"{vtrim(0, b0, b1)}[v0];{vtrim(1, a0, a1)},{size}[v1];[v0][v1]{stack}=inputs=2[v]"
     maps = ["-map", "[v]"]
     if pa["has_audio"]:  # audio from the new version
         graph += f";[1:a]atrim=start={a0 / fr}:end={(a1 + 1) / fr},asetpts=PTS-STARTPTS[a]"

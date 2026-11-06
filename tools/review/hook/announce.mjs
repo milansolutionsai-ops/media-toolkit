@@ -5,6 +5,7 @@ import { dirname, join, relative, resolve, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const STALE_HOURS = 4;
+const CLI = resolve(dirname(fileURLToPath(import.meta.url)), "..", "review.py").replace(/\\/g, "/");
 
 function main() {
   const root = resolve(process.env.REVIEW_ROOT || join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", ".."));
@@ -22,7 +23,7 @@ function main() {
     if (v.claimed_at && now - Date.parse(v.claimed_at) < STALE_HOURS * 3600e3) continue;
     const n = v.notes_count;
     lines.push(`Feedback ready: ${v.project} / ${v.title}, ${v.round_label}, ${n} note${n === 1 ? "" : "s"}. ` +
-      `Claim with: python media-toolkit/tools/review/review.py claim ${v.id}, then review.py show ${v.id}.`);
+      `Claim with: python "${CLI}" claim ${v.id}, then the same script with show ${v.id}.`);
   }
   if (lines.length) process.stdout.write(lines.join("\n") + "\n");
 }

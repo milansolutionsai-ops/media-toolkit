@@ -111,6 +111,30 @@ class ServerTest(unittest.TestCase):
         s, b = self.post(f"/api/videos/{VID}/send", {"round": 1, "notes": [], "verdicts": {}})
         self.assertEqual(b["status"], "approved")
 
+    def test_send_rejects_malformed_note(self):
+        bad = [{"start": 5, "end": 2, "tag": "picture", "text": "x"}]
+        req = urllib.request.Request(self.base + f"/api/videos/{VID}/send", method="POST",
+                                     data=json.dumps({"round": 1, "notes": [{"id": "../x", "start": 1, "end": 2,
+                                                                             "tag": "picture", "text": "x"}],
+                                                      "verdicts": {}}).encode())
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(req)
+        self.assertEqual(e.exception.code, 400)
+        s, b = self.post(f"/api/videos/{VID}/send", {"round": 1, "notes": bad, "verdicts": {}})
+        notes = json.loads((self.root / "milan-content/_review/03-x/notes-r1.json").read_text())["notes"]
+        self.assertRegex(notes[0]["id"], r"^[A-Za-z0-9_-]+$")
+        self.assertEqual((notes[0]["start"], notes[0]["end"]), (2, 5))
+
+    def test_foreign_host_rejected(self):
+        s, _, _ = self.get("/api/videos", {"Host": "evil.example:47615"})
+        self.assertEqual(s, 403)
+        req = urllib.request.Request(self.base + f"/api/videos/{VID}/send", method="POST",
+                                     data=b'{"round":1,"notes":[],"verdicts":{}}',
+                                     headers={"Origin": "https://evil.example"})
+        with self.assertRaises(urllib.error.HTTPError) as e:
+            urllib.request.urlopen(req)
+        self.assertEqual(e.exception.code, 403)
+
     def test_ui_served(self):
         s, h, b = self.get("/")
         self.assertEqual(s, 200)

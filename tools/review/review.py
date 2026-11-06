@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 from datetime import datetime, timezone
@@ -65,11 +66,26 @@ def open_notes(vdir: Path, n: int) -> dict[str, dict]:
     return need
 
 
+def _rollback(vdir: Path, n: int, status: str) -> None:
+    v = store.load_video(vdir)
+    v["rounds"] = [r for r in v["rounds"] if r["n"] != n]
+    v["status"] = status
+    store.save_json_atomic(vdir / "video.json", v)
+    for p in [vdir / f"r{n}.mp4", vdir / f"fixes-r{n}.json"]:
+        p.unlink(missing_ok=True)
+    for p in [vdir / f"r{n}", vdir / f"fixcheck-r{n}"]:
+        shutil.rmtree(p, ignore_errors=True)
+
+
 def cmd_register(a, root: Path) -> None:
     render = Path(a.render)
     if not render.exists():
         die(f"render not found: {render}")
     slug = a.slug or store.slugify(a.title)
+    if not re.fullmatch(store.SAFE_NAME, a.project) or ".." in a.project:
+        die(f"project folder name '{a.project}' must use only letters, digits, '-', '_' or '.'")
+    if not re.fullmatch(store.SAFE_NAME, slug):
+        die(f"slug '{slug}' must use only letters, digits, '-', '_' or '.'")
     vdir = store.video_dir(root, a.project, slug)
 
     if not (vdir / "video.json").exists():
@@ -88,8 +104,18 @@ def cmd_register(a, root: Path) -> None:
 
     v = store.load_video(vdir)
     prev = store.latest_round(v)
+    if v["status"] in ("waiting", "approved"):  # a new cut with nothing to answer: back to the reviewer
+        n = store.add_round(vdir, None)
+        try:
+            build_round(vdir, n, render, v["fps"])
+        except Exception:
+            _rollback(vdir, n, v["status"])
+            raise
+        store.rebuild_index(root)
+        print(f"registered {v['id']} round {n} (waiting for review)")
+        return
     if v["status"] != "sent":
-        die(f"{v['id']} is '{v['status']}': a fix round needs Milan's notes to be sent first")
+        die(f"{v['id']} is '{v['status']}': wait for the reviewer to check the fixes first")
     if not a.fixes:
         die("fix rounds need --fixes FIXES.json answering every open note")
     fixes = json.loads(Path(a.fixes).read_text(encoding="utf-8"))
@@ -115,15 +141,10 @@ def cmd_register(a, root: Path) -> None:
             index[nt["id"]] = media.make_fixcheck(vdir / f"r{prev}.mp4", vdir / f"r{n}.mp4", fc, nt["id"], nt["tag"],
                                                   before, after, fps, v["orientation"], v.get("windows"))
         store.save_json_atomic(fc / "index.json", index)
-    except Exception:
-        v2 = store.load_video(vdir)
-        v2["rounds"] = [r for r in v2["rounds"] if r["n"] != n]
-        v2["status"] = "sent"
-        store.save_json_atomic(vdir / "video.json", v2)
-        for p in [vdir / f"r{n}.mp4", vdir / f"fixes-r{n}.json"]:
-            p.unlink(missing_ok=True)
-        for p in [vdir / f"r{n}", vdir / f"fixcheck-r{n}"]:
-            shutil.rmtree(p, ignore_errors=True)
+    except Exception as e:
+        _rollback(vdir, n, "sent")
+        if isinstance(e, (ValueError, media.MediaError)):
+            die(f"round not registered: {e}")
         raise
     store.rebuild_index(root)
     print(f"registered {v['id']} round {n} (fixes ready to check)")

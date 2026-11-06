@@ -119,6 +119,42 @@ class CliTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(self.vdir("03-context-first-v2-e").exists())
 
+    def test_fixes_past_end_explains(self):
+        self.register(self.clip)
+        self.send(1, [{"id": "a", "round": 1, "start": 50, "end": 55, "tag": "picture", "text": "x"}])
+        short = Path(self.fx.name) / "short.mp4"
+        if not short.exists():
+            make_clip(short, seconds=1)
+        fx = self.root / "fixes.json"
+        fx.write_text(json.dumps({"answers": [{"note_id": "a", "explanation": "cut"}]}))
+        r = self.register(short, "03 X", "--fixes", str(fx))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("past the end", r.stderr)
+        self.assertEqual(json.loads((self.vdir() / "video.json").read_text())["status"], "sent")
+
+    def test_fixes_different_size_render(self):
+        self.register(self.clip)
+        self.send(1, [{"id": "a", "round": 1, "start": 20, "end": 22, "tag": "picture", "text": "x"}])
+        big = Path(self.fx.name) / "big.mp4"
+        if not big.exists():
+            make_clip(big, w=128, h=192)
+        fx = self.root / "fixes.json"
+        fx.write_text(json.dumps({"answers": [{"note_id": "a", "explanation": "cut"}]}))
+        r = self.register(big, "03 X", "--fixes", str(fx))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_bad_project_name_rejected(self):
+        r = self.run_cli("register", "--project", "My Project", "--title", "x", "--render", str(self.clip))
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("project", r.stderr)
+
+    def test_reregister_while_waiting_adds_round(self):
+        self.register(self.clip)
+        r = self.register(self.clip2)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        v = json.loads((self.vdir() / "video.json").read_text())
+        self.assertEqual((len(v["rounds"]), v["status"]), (2, "waiting"))
+
     def test_list(self):
         self.register(self.clip)
         r = self.run_cli("list")

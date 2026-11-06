@@ -63,7 +63,7 @@ kbd { background: var(--panel-2); border: 1px solid var(--line); border-radius: 
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: flex;
   flex-direction: column; gap: 12px; }
 .panel h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0; }
-.note { background: var(--panel-2); border-left: 3px solid var(--teal); border-radius: 4px; padding: 8px 10px;
+.note { background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
   display: flex; flex-direction: column; gap: 4px; cursor: pointer; }
 .note .row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
 .note .text { white-space: pre-wrap; }
