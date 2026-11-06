@@ -1,0 +1,191 @@
+"""Review app CLI, for Claude.
+
+  register --project P --title T --render PATH [--slug S] [--fixes FIXES.json]
+      First time: round 1 ("First cut"). Again: a fix round; --fixes must answer every open note:
+      {"answers": [{"note_id": "...", "explanation": "...", "before": [s, e]?, "after": [s, e]?}]}
+      (frame ranges; missing ranges default to the note's own frames)
+  claim ID      pick up sent feedback (ID = project/slug)
+  show ID       print the latest sent round: notes, frames, seconds, verdicts, still paths
+  list          every video with status and round
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import sys
+from datetime import datetime, timezone
+from fractions import Fraction
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import media  # noqa: E402
+import store  # noqa: E402
+
+
+def review_root() -> Path:
+    env = os.environ.get("REVIEW_ROOT")
+    return Path(env) if env else Path(__file__).resolve().parents[3]
+
+
+def die(msg: str, code: int = 2):
+    print(msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def vdir_for(root: Path, vid: str) -> Path:
+    project, _, slug = vid.partition("/")
+    d = store.video_dir(root, project, slug)
+    if not (d / "video.json").exists():
+        die(f"unknown video {vid}")
+    return d
+
+
+def build_round(vdir: Path, n: int, render: Path, fps: str) -> None:
+    rev = vdir / f"r{n}.mp4"
+    media.make_review_copy(render, rev, fps)
+    meta = media.make_sprite(rev, vdir / f"r{n}" / "sprite.jpg", fps)
+    store.save_json_atomic(vdir / f"r{n}" / "sprite.json", meta)
+    media.make_peaks(rev, vdir / f"r{n}" / "peaks.json")
+
+
+def open_notes(vdir: Path, n: int) -> dict[str, dict]:
+    """Notes that need an answer in round n+1: round n's new notes plus anything marked not-fixed in round n."""
+    all_notes = {}
+    for k in range(1, n + 1):
+        for nt in store.round_notes(vdir, k)["notes"]:
+            all_notes[nt["id"]] = nt
+    cur = store.round_notes(vdir, n)
+    need = {nt["id"]: nt for nt in cur["notes"]}
+    for nid, verdict in cur.get("verdicts", {}).items():
+        if verdict == "not-fixed" and nid in all_notes:
+            need[nid] = all_notes[nid]
+    return need
+
+
+def cmd_register(a, root: Path) -> None:
+    render = Path(a.render)
+    if not render.exists():
+        die(f"render not found: {render}")
+    slug = a.slug or store.slugify(a.title)
+    vdir = store.video_dir(root, a.project, slug)
+
+    if not (vdir / "video.json").exists():
+        p = media.probe(render)
+        fps = media.snap_fps(p["fps"])
+        store.new_video(root, a.project, a.title, slug, fps, p["width"], p["height"])
+        n = store.add_round(vdir, None)
+        try:
+            build_round(vdir, n, render, fps)
+        except Exception:
+            shutil.rmtree(vdir, ignore_errors=True)
+            raise
+        store.rebuild_index(root)
+        print(f"registered {a.project}/{slug} round {n} (waiting for review)")
+        return
+
+    v = store.load_video(vdir)
+    prev = store.latest_round(v)
+    if v["status"] != "sent":
+        die(f"{v['id']} is '{v['status']}': a fix round needs Milan's notes to be sent first")
+    if not a.fixes:
+        die("fix rounds need --fixes FIXES.json answering every open note")
+    fixes = json.loads(Path(a.fixes).read_text(encoding="utf-8"))
+    need = open_notes(vdir, prev)
+    answered = {x["note_id"] for x in fixes.get("answers", [])}
+    missing = sorted(set(need) - answered)
+    if missing:
+        die("missing answers for notes: " + ", ".join(missing))
+
+    n = store.add_round(vdir, fixes)
+    fps = v["fps"]
+    try:
+        build_round(vdir, n, render, fps)
+        fc = vdir / f"fixcheck-r{n}"
+        index = {}
+        for ans in fixes["answers"]:
+            nt = need.get(ans["note_id"])
+            if not nt:
+                continue
+            rng = (nt["start"], nt["end"])
+            before = tuple(ans.get("before") or rng)
+            after = tuple(ans.get("after") or rng)
+            index[nt["id"]] = media.make_fixcheck(vdir / f"r{prev}.mp4", vdir / f"r{n}.mp4", fc, nt["id"], nt["tag"],
+                                                  before, after, fps, v["orientation"], v.get("windows"))
+        store.save_json_atomic(fc / "index.json", index)
+    except Exception:
+        v2 = store.load_video(vdir)
+        v2["rounds"] = [r for r in v2["rounds"] if r["n"] != n]
+        v2["status"] = "sent"
+        store.save_json_atomic(vdir / "video.json", v2)
+        for p in [vdir / f"r{n}.mp4", vdir / f"fixes-r{n}.json"]:
+            p.unlink(missing_ok=True)
+        for p in [vdir / f"r{n}", vdir / f"fixcheck-r{n}"]:
+            shutil.rmtree(p, ignore_errors=True)
+        raise
+    store.rebuild_index(root)
+    print(f"registered {v['id']} round {n} (fixes ready to check)")
+
+
+def cmd_claim(a, root: Path) -> None:
+    vdir = vdir_for(root, a.id)
+    v = store.load_video(vdir)
+    if v["status"] != "sent":
+        die(f"nothing to claim: {a.id} is '{v['status']}'", 4)
+    n = store.latest_round(v)
+    try:
+        store.claim(vdir, n, datetime.now(timezone.utc))
+    except store.ClaimTaken as e:
+        at = datetime.fromisoformat(e.at).astimezone().strftime("%H:%M")
+        print(f"already picked up at {at}")
+        sys.exit(3)
+    store.rebuild_index(root)
+    print(f"claimed {a.id} round {n}")
+
+
+def cmd_show(a, root: Path) -> None:
+    vdir = vdir_for(root, a.id)
+    v = store.load_video(vdir)
+    sent = [r for r in v["rounds"] if r["sent_at"]]
+    if not sent:
+        die(f"{a.id} has no sent notes yet", 4)
+    n = sent[-1]["n"]
+    fps = float(Fraction(v["fps"]))
+    data = store.round_notes(vdir, n)
+    print(f"{v['title']} ({v['id']}), {store.round_label(n)}, review copy: {vdir / f'r{n}.mp4'} @ {v['fps']} fps")
+    for nid, verdict in data.get("verdicts", {}).items():
+        print(f"  verdict {nid}: {verdict}")
+    for nt in data["notes"]:
+        s, e = nt["start"], nt["end"]
+        print(f"- [{nt['tag']}] {nt['id']}: frames {s}-{e} ({s / fps:.3f}s-{(e + 1) / fps:.3f}s): {nt['text']}")
+        for fr in sorted({s, (s + e) // 2, e}):
+            still = vdir / f"r{n}" / "stills" / f"frame-{fr}.jpg"
+            if still.exists():
+                print(f"    still: {still}")
+
+
+def cmd_list(a, root: Path) -> None:
+    for _, v in store.iter_videos(root):
+        print(f"{v['id']}\t{v['status']}\t{store.round_label(store.latest_round(v))}")
+
+
+def main(argv=None) -> None:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    r = sub.add_parser("register")
+    r.add_argument("--project", required=True)
+    r.add_argument("--title", required=True)
+    r.add_argument("--render", required=True)
+    r.add_argument("--slug")
+    r.add_argument("--fixes")
+    for name in ("claim", "show"):
+        sub.add_parser(name).add_argument("id")
+    sub.add_parser("list")
+    a = ap.parse_args(argv)
+    root = review_root()
+    {"register": cmd_register, "claim": cmd_claim, "show": cmd_show, "list": cmd_list}[a.cmd](a, root)
+
+
+if __name__ == "__main__":
+    main()
