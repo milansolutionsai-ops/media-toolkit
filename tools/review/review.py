@@ -46,6 +46,7 @@ def build_round(vdir: Path, n: int, render: Path, fps: str) -> None:
     rev = vdir / f"r{n}.mp4"
     media.make_review_copy(render, rev, fps)
     meta = media.make_sprite(rev, vdir / f"r{n}" / "sprite.jpg", fps)
+    meta["frames"] = media.probe(rev)["frames"]
     store.save_json_atomic(vdir / f"r{n}" / "sprite.json", meta)
     media.make_peaks(rev, vdir / f"r{n}" / "peaks.json")
 

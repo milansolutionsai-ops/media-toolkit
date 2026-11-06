@@ -41,7 +41,7 @@ def video_summary(vdir: Path, v: dict) -> dict:
     claim = store.read_json(vdir / f"r{n}" / "claim.json") if n else None
     return {"id": v["id"], "title": v["title"], "project": v["project"], "status": v["status"],
             "status_label": store.STATUS_LABELS.get(v["status"], v["status"]),
-            "round_label": store.round_label(n) if n else "", "notes_count": len(notes.get("notes", [])),
+            "round_label": store.round_label(n) if n else "", "notes_count": store.feedback_count(notes),
             "claimed_at": (claim or {}).get("at"), "updated": v.get("updated")}
 
 
@@ -61,11 +61,13 @@ def video_detail(vdir: Path, v: dict) -> dict:
                             "explanation": a.get("explanation", ""),
                             "fixcheck": {"kind": fc["kind"], "urls": [f"{base}/fixcheck-r{n}/{f}" for f in fc["files"]]}
                             if fc else None})
+        sprite_meta = store.read_json(vdir / f"r{n}" / "sprite.json", {}) or {}
         rounds.append({"n": n, "label": store.round_label(n), "sent": bool(r.get("sent_at")),
+                       "frames": sprite_meta.get("frames", 0),
                        "notes": notes.get("notes", []), "verdicts": notes.get("verdicts", {}), "answers": answers,
                        "video_url": f"{base}/r{n}.mp4", "peaks_url": f"{base}/r{n}/peaks.json",
                        "sprite": {"url": f"{base}/r{n}/sprite.jpg",
-                                  "meta": store.read_json(vdir / f"r{n}" / "sprite.json", {})}})
+                                  "meta": sprite_meta}})
     out = video_summary(vdir, v)
     out.update({k: v[k] for k in ("fps", "width", "height", "orientation", "windows")})
     out["rounds"] = rounds

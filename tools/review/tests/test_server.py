@@ -68,6 +68,7 @@ class ServerTest(unittest.TestCase):
         d = json.loads(b)
         self.assertEqual(d["rounds"][0]["label"], "First cut")
         self.assertTrue(d["rounds"][0]["video_url"].startswith("/media/"))
+        self.assertEqual(d["rounds"][0]["frames"], 60)
 
     def test_range_206(self):
         s, h, b = self.get(f"/media/{VID}/r1.mp4", {"Range": "bytes=0-99"})

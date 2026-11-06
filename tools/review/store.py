@@ -152,6 +152,11 @@ def round_notes(vdir: Path, n: int) -> dict:
     return read_json(Path(vdir) / f"notes-r{n}.json", {"round": n, "notes": [], "verdicts": {}})
 
 
+def feedback_count(notes: dict) -> int:
+    """What Claude has to act on in a sent round: new notes plus fixes marked not-fixed."""
+    return len(notes.get("notes", [])) + sum(1 for s in notes.get("verdicts", {}).values() if s == "not-fixed")
+
+
 def iter_videos(root: Path):
     for vj in sorted(Path(root).glob("*/_review/*/video.json")):
         v = read_json(vj)
@@ -165,7 +170,6 @@ def rebuild_index(root: Path) -> None:
     for vdir, v in iter_videos(root):
         n = latest_round(v)
         notes = round_notes(vdir, n) if n else {"notes": [], "verdicts": {}}
-        not_fixed = sum(1 for s in notes.get("verdicts", {}).values() if s == "not-fixed")
         c = read_json(vdir / f"r{n}" / "claim.json") if n else None
         out.append({
             "id": v["id"],
@@ -174,7 +178,7 @@ def rebuild_index(root: Path) -> None:
             "status": v["status"],
             "round": n,
             "round_label": round_label(n) if n else "",
-            "notes_count": len(notes.get("notes", [])) + not_fixed,
+            "notes_count": feedback_count(notes),
             "sent_at": v["rounds"][-1]["sent_at"] if n else None,
             "claimed_at": (c or {}).get("at"),
             "folder": vdir.relative_to(root).as_posix(),

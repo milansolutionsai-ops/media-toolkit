@@ -99,6 +99,10 @@ class StoreTest(unittest.TestCase):
         self.assertEqual(e["claimed_at"], NOW.isoformat())
         self.assertNotRegex(e["folder"], r"^([A-Za-z]:|/)")
 
+    def test_feedback_count_includes_not_fixed(self):
+        self.assertEqual(store.feedback_count({"notes": [note("b", 2)], "verdicts": {"a": "not-fixed", "c": "fixed"}}), 2)
+        self.assertEqual(store.feedback_count({"notes": [], "verdicts": {"a": "not-fixed"}}), 1)
+
     def test_round_label(self):
         self.assertEqual(store.round_label(1), "First cut")
         self.assertEqual(store.round_label(3), "Fix round 2")

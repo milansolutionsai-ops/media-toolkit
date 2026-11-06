@@ -58,6 +58,7 @@ class CliTest(unittest.TestCase):
         for f in ["video.json", "r1.mp4", "r1/sprite.jpg", "r1/sprite.json", "r1/peaks.json"]:
             self.assertTrue((v / f).exists(), f)
         self.assertEqual(json.loads((v / "video.json").read_text())["status"], "waiting")
+        self.assertEqual(json.loads((v / "r1" / "sprite.json").read_text())["frames"], 60)
         self.assertTrue((self.root / "_review-index.json").exists())
 
     def test_register_second_round_requires_fixes(self):
