@@ -3,6 +3,7 @@ import { parseFps, fmtTime, reduceKey, initialKeyState } from "./frames.js";
 import { Player } from "./player.js";
 import { Timeline } from "./timeline.js";
 import { attachKeys } from "./keys.js";
+import { PLATFORMS, overlay } from "./safezones.js";
 
 const app = document.getElementById("app");
 const keysBar = document.getElementById("keys");
@@ -27,6 +28,32 @@ const api = (p, opts) => fetch(p, opts).then(async (r) => {
 const TAG_LABEL = { picture: "Picture", sound: "Sound", cut: "Cut" };
 const hhmm = (iso) => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 const uid = () => Math.random().toString(36).slice(2, 8);
+
+// ---------- platform safe zones (shared toggle, remembered per browser) ----------
+const zoneKey = "rv-safezone";
+const getZone = () => { try { return localStorage.getItem(zoneKey) || "off"; } catch { return "off"; } };
+const zoneBoxes = new Set();
+function videoBox(video, vw, vh) {
+  const box = h("div", { class: "vbox" }, video);
+  const paint = () => {
+    box.querySelector(".safezones")?.remove();
+    const p = getZone();
+    if (p !== "off") box.append(overlay(p, vw, vh));
+  };
+  box.paintZones = paint;
+  zoneBoxes.add(box);
+  paint();
+  return box;
+}
+function zonePicker() {
+  const sel = h("select", { class: "zonepick", title: "Show where the app's buttons cover the video",
+    onchange: () => { try { localStorage.setItem(zoneKey, sel.value); } catch {}
+      zoneBoxes.forEach((b) => (b.isConnected ? b.paintZones() : zoneBoxes.delete(b))); } },
+    h("option", { value: "off" }, "Safe zones: off"),
+    Object.entries(PLATFORMS).map(([k, p]) => h("option", { value: k }, `Safe zones: ${p.name}`)));
+  sel.value = getZone();
+  return sel;
+}
 
 // ---------- pointer line (feedback waiting for Claude) ----------
 async function refreshPointer() {
@@ -54,9 +81,10 @@ async function inbox() {
       .sort((a, b) => (b.updated || "").localeCompare(a.updated || ""));
     if (!shown.length) grid.append(h("div", { class: "empty" }, "Nothing waiting for review."));
     for (const v of shown) {
-      grid.append(h("a", { class: "card", href: `#/v/${v.id}` },
+      const href = v.kind === "style" ? `#/s/${v.id.replace("/style-", "/")}` : `#/v/${v.id}`;
+      grid.append(h("a", { class: "card", href },
         h("span", { class: "title" }, v.title),
-        h("span", { class: "meta" }, `${v.project} · ${v.round_label}`),
+        h("span", { class: "meta" }, `${v.project} · ${v.round_label}${v.kind === "style" ? ` · ${v.notes_count} options` : ""}`),
         h("span", { class: `status ${v.status}` }, v.status_label,
           v.status === "sent" && v.claimed_at ? ` · picked up ${hhmm(v.claimed_at)}` : "")));
     }
@@ -157,7 +185,8 @@ function workspace(d, round, notes) {
 
   const el = h("div", {},
     h("div", { class: `work ${d.orientation}` },
-      h("div", {}, h("div", { class: "stage" }, video), readout),
+      h("div", {}, h("div", { class: "stage" }, videoBox(video, d.width, d.height)),
+        h("div", { class: "under" }, readout, zonePicker())),
       h("div", { class: "panel" }, h("h2", {}, "Notes"), list,
         h("div", { class: "editor" }, h("div", { class: "tags" }, tagBtns), rangeEl, text))),
     tl);
@@ -272,13 +301,67 @@ async function videoPage(id) {
   update();
 }
 
+// ---------- style round page ----------
+async function stylePage(project, n) {
+  keysBar.hidden = true;
+  const d = await api(`/api/style/${project}/${n}`);
+  const open = d.status === "waiting";
+  const reactions = {};
+  for (const [cid, r] of Object.entries(d.reactions || {})) reactions[cid] = { ...r };
+  const sendBtn = h("button", { class: "primary" });
+  const roundNote = h("textarea", { placeholder: "Anything about the round as a whole? (optional)", disabled: !open || null });
+  roundNote.value = d.note || "";
+  const update = () => {
+    const left = d.candidates.filter((c) => !reactions[c.id]?.verdict).length;
+    sendBtn.disabled = !open || left > 0;
+    sendBtn.textContent = !open ? "Reactions sent" : left ? `React to ${left} more first` : "Send reactions to Claude";
+  };
+  const cards = d.candidates.map((c) => {
+    const video = h("video", { src: c.video_url, controls: true, loop: true, preload: "metadata", playsinline: true });
+    const btns = ["keep", "maybe", "drop"].map((v) => h("button", { class: `ghost react ${v}`, disabled: !open || null,
+      onclick: () => { reactions[c.id] = { ...(reactions[c.id] || {}), verdict: v }; paint(); update(); } },
+      v[0].toUpperCase() + v.slice(1)));
+    const note = h("input", { class: "cnote", placeholder: "Close? Say what to change (optional)", disabled: !open || null,
+      oninput: () => { reactions[c.id] = { ...(reactions[c.id] || {}), note: note.value }; } });
+    note.value = reactions[c.id]?.note || "";
+    const paint = () => btns.forEach((b) => b.classList.toggle("on", b.classList.contains(reactions[c.id]?.verdict)));
+    paint();
+    return h("div", { class: `cand ${c.width > c.height ? "wide" : ""}` },
+      h("div", { class: "cmedia" }, videoBox(video, c.width, c.height)),
+      h("div", { class: "cbody" },
+        h("div", { class: "row" }, h("span", { class: "tag" }, c.dimension),
+          c.origin === "claude" ? h("span", { class: "badge" }, "Claude's idea") : null),
+        h("div", { class: "title" }, c.label),
+        c.explain ? h("div", { class: "meta" }, c.explain) : null,
+        h("div", { class: "verdict" }, btns), note));
+  });
+  sendBtn.onclick = async () => {
+    sendBtn.disabled = true;
+    try {
+      await api(`/api/style/${project}/${n}/send`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reactions, note: roundNote.value }) });
+      location.hash = "#/";
+    } catch (err) { sendBtn.textContent = `Couldn't send: ${err.message}`; sendBtn.disabled = false; }
+  };
+  app.replaceChildren(
+    h("div", { class: "vhead" }, h("h1", {}, d.title), h("span", { class: `status ${d.status}` },
+      open ? "Waiting for you" : "Reactions sent"), h("span", { class: "meta" }, `${d.project} · Style round ${d.n}`),
+      h("span", { class: "spacer" }), zonePicker()),
+    h("p", { class: "meta" }, "Each option changes one thing. Keep it, maybe, or drop it. A few words help when it's close."),
+    h("div", { class: "cands" }, cards),
+    h("div", { class: "editor", style: "margin-top:16px" }, roundNote),
+    h("div", { class: "sendbar", style: "margin-top:12px" }, sendBtn));
+  update();
+}
+
 // ---------- router ----------
 async function route() {
   detachKeys(); detachKeys = () => {};
   cleanupView(); cleanupView = () => {};
   const m = location.hash.match(/^#\/v\/([^/]+\/[^/]+)$/);
+  const s = location.hash.match(/^#\/s\/([^/]+)\/(\d+)$/);
   try {
-    await (m ? videoPage(m[1]) : inbox());
+    await (m ? videoPage(m[1]) : s ? stylePage(s[1], s[2]) : inbox());
   } catch (err) {
     app.replaceChildren(h("div", { class: "empty" }, `Something went wrong: ${err.message}`));
   }

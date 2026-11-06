@@ -105,3 +105,33 @@ textarea:focus { outline: none; border-color: var(--teal); }
 .meta { color: var(--muted); font-size: 13px; }
 [hidden] { display: none !important; }
 .check .media { width: fit-content; max-width: 100%; }
+
+/* Safe zones */
+.vbox { position: relative; display: inline-block; max-width: 100%; }
+.vbox video { display: block; }
+.safezones { position: absolute; inset: 0; pointer-events: none; }
+.zone { position: absolute; background: rgba(229, 103, 90, 0.28); outline: 1px dashed rgba(229, 103, 90, 0.9);
+  color: #fff; font-size: 12px; display: flex; align-items: center; justify-content: center; text-align: center;
+  text-shadow: 0 1px 2px #000; }
+.under { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.zonepick { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px;
+  padding: 4px 8px; font: inherit; font-size: 13px; }
+.spacer { flex: 1; }
+
+/* Style rounds */
+.cands { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; margin-top: 12px; }
+.cand { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden;
+  display: flex; flex-direction: column; }
+.cand.wide { grid-column: span 2; }
+.cmedia { background: #000; display: flex; justify-content: center; }
+.cmedia video { max-height: 52vh; max-width: 100%; }
+.cbody { padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+.cbody .row { display: flex; gap: 8px; align-items: center; }
+.cbody .title { font-weight: 600; }
+.badge { font-size: 12px; font-weight: 600; color: #031414; background: var(--teal); border-radius: 4px; padding: 0 6px; }
+.react.on.keep { background: var(--teal); color: #031414; border-color: var(--teal); }
+.react.on.maybe { background: #d6b25e; color: #1a1405; border-color: #d6b25e; }
+.react.on.drop { background: var(--red); color: #1a0705; border-color: var(--red); }
+.cnote { background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px;
+  font: inherit; font-size: 14px; }
+.cnote:focus { outline: none; border-color: var(--teal); }

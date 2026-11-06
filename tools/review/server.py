@@ -19,6 +19,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import media  # noqa: E402
 import store  # noqa: E402
+import style  # noqa: E402
 from review import open_notes, review_root  # noqa: E402
 
 PORT = 47615
@@ -76,6 +77,28 @@ def video_detail(vdir: Path, v: dict) -> dict:
     out.update({k: v[k] for k in ("fps", "width", "height", "orientation", "windows")})
     out["rounds"] = rounds
     return out
+
+
+def style_summary(r: dict) -> dict:
+    return {"id": f"{r['project']}/style-{r['n']}", "kind": "style", "title": r["title"], "project": r["project"],
+            "status": r["status"], "status_label": "Waiting for you" if r["status"] == "waiting" else "Reactions sent",
+            "round_label": f"Style round {r['n']}", "notes_count": len(r["candidates"]), "claimed_at": None,
+            "updated": r.get("sent_at") or r.get("created")}
+
+
+def style_detail(root: Path, project: str, n: int) -> dict | None:
+    if not re.fullmatch(NAME, project) or ".." in project:
+        return None
+    d = style.style_dir(root, project, n)
+    r = store.read_json(d / "round.json")
+    if not r:
+        return None
+    rx = store.read_json(d / "reactions.json", {}) or {}
+    cands = [{"id": c["id"], "label": c["label"], "dimension": c["dimension"], "origin": c["origin"],
+              "explain": c.get("explain", ""), "width": c["width"], "height": c["height"],
+              "video_url": f"/media/{project}/style-{n}/c-{c['id']}.mp4"} for c in r["candidates"]]
+    return {"project": project, "n": n, "title": r["title"], "status": r["status"], "candidates": cands,
+            "reactions": rx.get("reactions", {}), "note": rx.get("note", "")}
 
 
 def handle_send(root: Path, vdir: Path, body: dict) -> dict:
@@ -185,7 +208,22 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/health":
             return self._json({"ok": True})
         if path == "/api/videos":
-            return self._json([video_summary(d, v) for d, v in store.iter_videos(self.root)])
+            vids = [dict(video_summary(d, v), kind="video") for d, v in store.iter_videos(self.root)]
+            claims = {e["id"]: e.get("claimed_at") for e in
+                      (store.read_json(self.root / store.INDEX_NAME, {}) or {}).get("videos", [])}
+            styles = [dict(style_summary(r), claimed_at=claims.get(f"{r['project']}/style-{r['n']}"))
+                      for _, r in style.iter_rounds(self.root)]
+            return self._json(vids + styles)
+        m = re.fullmatch(rf"/api/style/({NAME})/(\d+)", path)
+        if m:
+            d = style_detail(self.root, m.group(1), int(m.group(2)))
+            return self._json(d) if d else self._404()
+        m = re.fullmatch(rf"/media/({NAME})/style-(\d+)/(c-c\d+\.mp4)", path)
+        if m:
+            if ".." in m.group(1):
+                return self._404()
+            f = style.style_dir(self.root, m.group(1), int(m.group(2))) / m.group(3)
+            return self._file(f) if f.is_file() else self._404()
         m = re.fullmatch(rf"/api/videos/({NAME})/({NAME})", path)
         if m:
             vdir = _vdir(self.root, *m.groups())
@@ -211,6 +249,17 @@ class Handler(BaseHTTPRequestHandler):
         if not self._trusted():
             return self._json({"error": "forbidden"}, 403)
         path = unquote(urlparse(self.path).path)
+        m = re.fullmatch(rf"/api/style/({NAME})/(\d+)/send", path)
+        if m:
+            if not style_detail(self.root, m.group(1), int(m.group(2))):
+                return self._404()
+            try:
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+                style.apply_reactions(self.root, m.group(1), int(m.group(2)), body.get("reactions") or {},
+                                      str(body.get("note") or ""))
+                return self._json({"status": "sent"})
+            except (ValueError, KeyError, TypeError) as e:
+                return self._json({"error": str(e)}, 400)
         m = re.fullmatch(rf"/api/videos/({NAME})/({NAME})/send", path)
         vdir = _vdir(self.root, *m.groups()) if m else None
         if not vdir:
