@@ -64,3 +64,12 @@ test("fast", () => {
   const root = setup([video()]);
   assert.ok(run(root, root).ms < 500);
 });
+
+test("announces style reactions with style.py path", () => {
+  const root = setup([video({ kind: "style", id: "my-project/style-2", title: "Round two", round: 2,
+    round_label: "Style round 2", notes_count: 6 })]);
+  const r = run(root, root);
+  const cli = resolve(dirname(SCRIPT), "..", "style.py").replace(/\\/g, "/");
+  assert.match(r.stdout, /Style reactions ready: my-project \/ Round two, Style round 2, 6 candidates\./);
+  assert.ok(r.stdout.includes(`python "${cli}" claim my-project 2`), r.stdout);
+});
