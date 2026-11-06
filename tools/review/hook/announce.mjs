@@ -1,4 +1,4 @@
-// Claude Code UserPromptSubmit hook: tells Claude when Milan has sent review feedback.
+// Claude Code UserPromptSubmit hook: tells Claude when the reviewer has sent review feedback.
 // Reads only <root>/_review-index.json. Silent outside the workspace and on any error.
 import { readFileSync } from "node:fs";
 import { dirname, join, relative, resolve, isAbsolute } from "node:path";

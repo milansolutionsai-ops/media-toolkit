@@ -1,6 +1,6 @@
 """Review data on disk: one folder per video under <project>/_review/<slug>/.
 
-video.json holds the video and its rounds; notes-rN.json holds what Milan sent for round N;
+video.json holds the video and its rounds; notes-rN.json holds what the reviewer sent for round N;
 fixes-rN.json holds Claude's answers that came with round N; rN/claim.json marks a picked-up round.
 """
 from __future__ import annotations
@@ -38,6 +38,17 @@ def slugify(title: str) -> str:
     s = unicodedata.normalize("NFKD", title).encode("ascii", "ignore").decode().lower()
     s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
     return s[:60].strip("-") or "video"
+
+
+def unique_slug(root: Path, project: str, slug: str, title: str) -> str:
+    """The slug for this title: reuse the folder of the same title, otherwise add -2, -3... on a clash."""
+    candidate, k = slug, 1
+    while True:
+        v = read_json(video_dir(root, project, candidate) / "video.json")
+        if v is None or v.get("title") == title:
+            return candidate
+        k += 1
+        candidate = f"{slug}-{k}"
 
 
 def round_label(n: int) -> str:

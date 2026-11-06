@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import os
 import re
 import secrets
 import sys
@@ -21,11 +22,13 @@ import store  # noqa: E402
 from review import open_notes, review_root  # noqa: E402
 
 PORT = 47615
+AUTHOR = os.environ.get("REVIEW_AUTHOR", "reviewer")
 UI_DIR = HERE / "ui"
 NAME = r"[A-Za-z0-9_.-]+"
 ASSET_RE = re.compile(r"^(r\d+\.mp4|r\d+/(sprite\.jpg|sprite\.json|peaks\.json)|fixcheck-r\d+/[A-Za-z0-9_-]+(-\d+)?\.(jpg|mp4))$")
 TYPES = {".mp4": "video/mp4", ".jpg": "image/jpeg", ".json": "application/json", ".html": "text/html; charset=utf-8",
-         ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml"}
+         ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml",
+         ".png": "image/png", ".webmanifest": "application/manifest+json"}
 CHUNK = 1 << 20
 
 
@@ -92,7 +95,11 @@ def handle_send(root: Path, vdir: Path, body: dict) -> dict:
         a, b = sorted((int(raw["start"]), int(raw["end"])))
         a, b = max(0, min(a, total - 1)), max(0, min(b, total - 1))
         notes.append({"id": str(nid), "round": n, "start": a, "end": b, "tag": raw["tag"],
-                      "text": str(raw["text"]).strip(), "author": "Milan"})
+                      "text": str(raw["text"]).strip(), "author": AUTHOR})
+    fixes = store.read_json(vdir / f"fixes-r{n}.json", {}) or {}
+    unanswered = [a["note_id"] for a in fixes.get("answers", []) if a["note_id"] not in verdicts]
+    if unanswered:
+        raise ValueError("every fix needs Fixed or Not fixed before sending")
     status = store.apply_send(vdir, n, notes, verdicts)
     frames = sorted({f for nt in notes if nt["tag"] in ("picture", "cut")
                      for f in (nt["start"], (nt["start"] + nt["end"]) // 2, nt["end"])})
@@ -134,7 +141,7 @@ class Handler(BaseHTTPRequestHandler):
         ctype = TYPES.get(path.suffix, mimetypes.guess_type(path.name)[0] or "application/octet-stream")
         start, end, code = 0, size - 1, 200
         rng = self.headers.get("Range")
-        if rng:
+        if rng and "," not in rng:  # multi-range isn't supported: send the whole file
             m = re.fullmatch(r"bytes=(\d*)-(\d*)", rng.strip())
             if not m or (m.group(1) == "" and m.group(2) == ""):
                 start = size  # malformed: treat as unsatisfiable
@@ -193,7 +200,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._file(f) if f.is_file() else self._404()
         if path in ("/", "/index.html"):
             return self._file(UI_DIR / "index.html")
-        m = re.fullmatch(r"/ui/([A-Za-z0-9_-]+\.(js|css|svg|html))", path)
+        if path == "/sw.js":  # service worker at root scope, so the app is installable
+            return self._file(UI_DIR / "sw.js")
+        m = re.fullmatch(r"/ui/([A-Za-z0-9_-]+\.(js|css|svg|html|png|webmanifest))", path)
         if m and (UI_DIR / m.group(1)).is_file():
             return self._file(UI_DIR / m.group(1))
         return self._404()

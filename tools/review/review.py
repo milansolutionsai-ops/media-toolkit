@@ -81,9 +81,9 @@ def cmd_register(a, root: Path) -> None:
     render = Path(a.render)
     if not render.exists():
         die(f"render not found: {render}")
-    slug = a.slug or store.slugify(a.title)
     if not re.fullmatch(store.SAFE_NAME, a.project) or ".." in a.project:
         die(f"project folder name '{a.project}' must use only letters, digits, '-', '_' or '.'")
+    slug = a.slug or store.unique_slug(root, a.project, store.slugify(a.title), a.title)
     if not re.fullmatch(store.SAFE_NAME, slug):
         die(f"slug '{slug}' must use only letters, digits, '-', '_' or '.'")
     vdir = store.video_dir(root, a.project, slug)

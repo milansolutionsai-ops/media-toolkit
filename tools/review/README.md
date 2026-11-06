@@ -10,11 +10,11 @@ Claude is told automatically, fixes, and the reviewer checks each fix before/aft
 ## For Claude
 
 ```bash
-python media-toolkit/tools/review/review.py register --project milan-content --title "03 Context first" --render path/to/final.mp4
+python media-toolkit/tools/review/review.py register --project my-project --title "My video" --render path/to/final.mp4
 python media-toolkit/tools/review/review.py list
-python media-toolkit/tools/review/review.py claim milan-content/03-context-first
-python media-toolkit/tools/review/review.py show milan-content/03-context-first
-python media-toolkit/tools/review/review.py register --project milan-content --title "03 Context first" --render path/to/v2.mp4 --fixes fixes.json
+python media-toolkit/tools/review/review.py claim my-project/my-video
+python media-toolkit/tools/review/review.py show my-project/my-video
+python media-toolkit/tools/review/review.py register --project my-project --title "My video" --render path/to/v2.mp4 --fixes fixes.json
 ```
 
 `fixes.json` answers every open note (new notes + anything marked Not fixed):
@@ -39,14 +39,18 @@ Loop: register → reviewer sends notes → the hook prints "Feedback ready" on 
 
 Statuses: `waiting` → `sent` → `fixes_ready` → `sent` or `approved`.
 
-## Setup (once)
+## Setup (once, Windows)
 
 ```bash
 python media-toolkit/tools/review/install.py
 ```
 
-Creates a "Video Review" Start-menu shortcut (pin it to the taskbar by hand) and prints the hook block for
-`~/.claude/settings.json`. The shortcut starts the server silently if needed and opens an app window.
+- Starts the server with Windows (hidden Startup entry) and starts it now.
+- Opens the app in Edge: menu (...) > Apps > Install this site as an app, tick "Pin to taskbar". The installed
+  app gets its own window, taskbar button and icon. (Pinning a plain browser window pins Edge itself.)
+- Prints the hook block for `~/.claude/settings.json`.
+- Reviewer name on notes: env `REVIEW_AUTHOR` (default `reviewer`).
+- `launch.pyw` starts the server if needed and opens an app-mode window, for when you don't want to install.
 
 ## Tests
 

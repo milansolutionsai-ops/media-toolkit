@@ -74,4 +74,6 @@ SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
 if __name__ == "__main__":
     write_ico(HERE / "icon.ico")
     (HERE / "ui" / "icon.svg").write_text(SVG, encoding="utf-8")
-    print("wrote icon.ico and ui/icon.svg")
+    for s in (192, 512):
+        (HERE / "ui" / f"icon-{s}.png").write_bytes(render(s, ss=2))
+    print("wrote icon.ico, ui/icon.svg, ui/icon-192.png, ui/icon-512.png")

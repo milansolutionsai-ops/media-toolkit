@@ -20,10 +20,18 @@ export class Timeline {
       onSeek(Math.round(((e.clientX - r.left) / r.width) * (this.total - 1)));
     };
     let dragging = false;
-    this.canvas.addEventListener("mousedown", (e) => { dragging = true; seekAt(e); });
-    window.addEventListener("mousemove", (e) => dragging && seekAt(e));
-    window.addEventListener("mouseup", () => { dragging = false; });
-    new ResizeObserver(() => this.draw()).observe(host);
+    this.ac = new AbortController();
+    const signal = this.ac.signal;
+    this.canvas.addEventListener("mousedown", (e) => { dragging = true; seekAt(e); }, { signal });
+    window.addEventListener("mousemove", (e) => dragging && seekAt(e), { signal });
+    window.addEventListener("mouseup", () => { dragging = false; }, { signal });
+    this.ro = new ResizeObserver(() => this.draw());
+    this.ro.observe(host);
+  }
+
+  destroy() {
+    this.ac.abort();
+    this.ro.disconnect();
   }
 
   set({ ranges, mark, frame }) {

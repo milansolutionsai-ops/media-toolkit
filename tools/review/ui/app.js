@@ -7,6 +7,7 @@ import { attachKeys } from "./keys.js";
 const app = document.getElementById("app");
 const keysBar = document.getElementById("keys");
 let detachKeys = () => {};
+let cleanupView = () => {};
 
 const h = (tag, attrs = {}, ...kids) => {
   const el = document.createElement(tag);
@@ -163,9 +164,11 @@ function workspace(d, round, notes) {
 
   requestAnimationFrame(() => {
     player = new Player(video, fps, total, (f) => { ks.frame = f; paint(); });
+    cleanupView();
     timeline = new Timeline(tl, { spriteUrl: round.sprite.url, spriteMeta: round.sprite.meta,
       peaksUrl: round.peaks_url, total, onSeek: (f) => { player.pause(); player.seek(f); } });
     player.seek(0);
+    cleanupView = () => { timeline.destroy(); player.pause(); };
   });
   return { el, onKey, onChangeSet: (fn) => { onChange = fn; paint(); } };
 }
@@ -272,6 +275,7 @@ async function videoPage(id) {
 // ---------- router ----------
 async function route() {
   detachKeys(); detachKeys = () => {};
+  cleanupView(); cleanupView = () => {};
   const m = location.hash.match(/^#\/v\/([^/]+\/[^/]+)$/);
   try {
     await (m ? videoPage(m[1]) : inbox());

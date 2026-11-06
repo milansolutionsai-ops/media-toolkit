@@ -11,11 +11,11 @@ const hoursAgo = (h) => new Date(Date.now() - h * 3600e3).toISOString();
 
 function setup(videos) {
   const root = mkdtempSync(join(tmpdir(), "rv-"));
-  mkdirSync(join(root, "milan-content"));
+  mkdirSync(join(root, "my-project"));
   if (videos !== undefined) writeFileSync(join(root, "_review-index.json"), typeof videos === "string" ? videos : JSON.stringify({ videos }));
   return root;
 }
-const video = (extra) => ({ id: "milan-content/03-x", title: "03 X", project: "milan-content", status: "sent",
+const video = (extra) => ({ id: "my-project/03-x", title: "03 X", project: "my-project", status: "sent",
   round: 1, round_label: "First cut", notes_count: 4, claimed_at: null, ...extra });
 
 function run(root, cwd) {
@@ -27,11 +27,11 @@ function run(root, cwd) {
 
 test("announces unclaimed sent feedback", () => {
   const root = setup([video()]);
-  const r = run(root, join(root, "milan-content"));
+  const r = run(root, join(root, "my-project"));
   assert.equal(r.status, 0);
-  assert.match(r.stdout, /Feedback ready: milan-content \/ 03 X, First cut, 4 notes\./);
+  assert.match(r.stdout, /Feedback ready: my-project \/ 03 X, First cut, 4 notes\./);
   const cli = resolve(dirname(SCRIPT), "..", "review.py").replace(/\\/g, "/");
-  assert.ok(r.stdout.includes(`python "${cli}" claim milan-content/03-x`), r.stdout);
+  assert.ok(r.stdout.includes(`python "${cli}" claim my-project/03-x`), r.stdout);
 });
 
 test("silent outside the workspace", () => {

@@ -30,7 +30,7 @@ class CliTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        (self.root / "milan-content").mkdir()
+        (self.root / "my-project").mkdir()
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -40,10 +40,10 @@ class CliTest(unittest.TestCase):
         return subprocess.run([sys.executable, str(CLI), *args], env=env, capture_output=True, text=True)
 
     def register(self, render, title="03 X", *extra):
-        return self.run_cli("register", "--project", "milan-content", "--title", title, "--render", str(render), *extra)
+        return self.run_cli("register", "--project", "my-project", "--title", title, "--render", str(render), *extra)
 
     def vdir(self, slug="03-x"):
-        return self.root / "milan-content" / "_review" / slug
+        return self.root / "my-project" / "_review" / slug
 
     def send(self, rnd, notes, verdicts=None):
         sys.path.insert(0, str(HERE.parent))
@@ -91,10 +91,10 @@ class CliTest(unittest.TestCase):
     def test_claim_then_claim_again_exit3(self):
         self.register(self.clip)
         self.send(1, [{"id": "a", "round": 1, "start": 20, "end": 22, "tag": "picture", "text": "x"}])
-        r = self.run_cli("claim", "milan-content/03-x")
+        r = self.run_cli("claim", "my-project/03-x")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("claimed milan-content/03-x round 1", r.stdout)
-        r = self.run_cli("claim", "milan-content/03-x")
+        self.assertIn("claimed my-project/03-x round 1", r.stdout)
+        r = self.run_cli("claim", "my-project/03-x")
         self.assertEqual(r.returncode, 3)
         self.assertIn("already picked up", r.stdout + r.stderr)
 
@@ -104,7 +104,7 @@ class CliTest(unittest.TestCase):
         still_dir.mkdir(parents=True)
         (still_dir / "frame-20.jpg").write_bytes(b"x")
         self.send(1, [{"id": "a", "round": 1, "start": 20, "end": 22, "tag": "picture", "text": "flash"}])
-        r = self.run_cli("show", "milan-content/03-x")
+        r = self.run_cli("show", "my-project/03-x")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("flash", r.stdout)
         self.assertIn(str(still_dir / "frame-20.jpg"), r.stdout)
@@ -155,10 +155,19 @@ class CliTest(unittest.TestCase):
         v = json.loads((self.vdir() / "video.json").read_text())
         self.assertEqual((len(v["rounds"]), v["status"]), (2, "waiting"))
 
+    def test_similar_titles_get_separate_videos(self):
+        self.register(self.clip, "Take 2")
+        r = self.register(self.clip2, "Take-2")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.vdir("take-2").exists())
+        self.assertTrue(self.vdir("take-2-2").exists())
+        r = self.register(self.clip2, "Take 2")  # same title again = a new cut of the same video
+        self.assertEqual(len(json.loads((self.vdir("take-2") / "video.json").read_text())["rounds"]), 2)
+
     def test_list(self):
         self.register(self.clip)
         r = self.run_cli("list")
-        self.assertIn("milan-content/03-x", r.stdout)
+        self.assertIn("my-project/03-x", r.stdout)
         self.assertIn("waiting", r.stdout)
 
 

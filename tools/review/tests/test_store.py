@@ -13,15 +13,15 @@ NOW = datetime(2026, 11, 6, 12, 0, tzinfo=timezone.utc)
 
 
 def note(nid, rnd=1, start=10, end=12, tag="picture"):
-    return {"id": nid, "round": rnd, "start": start, "end": end, "tag": tag, "text": "x", "author": "Milan"}
+    return {"id": nid, "round": rnd, "start": start, "end": end, "tag": tag, "text": "x", "author": "reviewer"}
 
 
 class StoreTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        self.v = store.new_video(self.root, "milan-content", "03 X", "03-x", "30/1", 1080, 1920)
-        self.vdir = store.video_dir(self.root, "milan-content", "03-x")
+        self.v = store.new_video(self.root, "my-project", "03 X", "03-x", "30/1", 1080, 1920)
+        self.vdir = store.video_dir(self.root, "my-project", "03-x")
         store.add_round(self.vdir, None)
 
     def tearDown(self):
@@ -34,7 +34,7 @@ class StoreTest(unittest.TestCase):
         v = store.load_video(self.vdir)
         self.assertTrue((self.vdir / "video.json").exists())
         self.assertEqual(v["status"], "waiting")
-        self.assertEqual(v["id"], "milan-content/03-x")
+        self.assertEqual(v["id"], "my-project/03-x")
         self.assertEqual(v["orientation"], "vertical")
         self.assertEqual(v["windows"], {"picture_frames": 4, "sound_seconds": 2, "cut_seconds": 1})
 
@@ -93,7 +93,7 @@ class StoreTest(unittest.TestCase):
         store.rebuild_index(self.root)
         idx = json.loads((self.root / "_review-index.json").read_text(encoding="utf-8"))
         e = idx["videos"][0]
-        self.assertEqual(e["id"], "milan-content/03-x")
+        self.assertEqual(e["id"], "my-project/03-x")
         self.assertEqual(e["status"], "sent")
         self.assertEqual(e["notes_count"], 2)
         self.assertEqual(e["claimed_at"], NOW.isoformat())
