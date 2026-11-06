@@ -57,6 +57,26 @@ class FilterTextTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             render.transition_filters("[v]", "[o]", "spin", 2.5, 0, 1080, 1920)
 
+    def test_leak_and_wipe_sit_on_the_cut(self):
+        leak = ";".join(render.transition_filters("[v]", "[o]", "leak", 2.5, 0, 1080, 1920))
+        wipe = ";".join(render.transition_filters("[v]", "[o]", "wipe", 2.5, 0, 1080, 1920))
+        self.assertIn("between(t,2.280,2.720)", leak)
+        self.assertIn("overlay=x=", wipe)          # drawbox can't move over time; an overlay can
+        self.assertIn("2.500", wipe)
+
+    def test_box_is_a_rounded_rectangle(self):
+        f = ";".join(render.bubble_layer("[v]", "[m]", "[b]", {"start": 1, "duration": 2, "x": 0, "y": 0,
+                                                              "w": 600, "h": 400, "radius": 40,
+                                                              "crop": [100, 100, 600, 400]}, 0))
+        self.assertIn("crop=600:400:100:100", f)
+        self.assertIn("40", f)
+
+    def test_background_zoom_follows_punch_ins(self):
+        z = render.bg_zoom_expr([(1.0, 2.0, 1.18)])
+        self.assertIn("between(it,1.000,2.000)", z)
+        self.assertIn("1.18", z)
+        self.assertEqual(render.bg_zoom_expr([]), "1")
+
     def test_xray_scans_down_from_its_start(self):
         f = ";".join(render.xray_filters("[v]", "[o]", start=3.0, duration=1.2, n=0))
         self.assertIn("negate", f)
@@ -102,6 +122,29 @@ class RenderTests(unittest.TestCase):
                       "crop": [40, 60, 80]}])
         self.assertAlmostEqual(vdur(out), 4.0, delta=0.1)
         self.assertGreater(mean_luma(out, 3.0), mean_luma(out, 3.6) + 40)   # the flash is bright at its cut
+
+    def test_sfx_are_mixed_at_their_times(self):
+        click = self.d / "click.wav"
+        ff("-f", "lavfi", "-i", "sine=f=2000:d=0.1", "-af", "volume=10dB", str(click))
+        out = self.d / "sfx.mp4"
+        render.build_final_composite(self.base, [], None, out, self.d, sfx=[{"file": str(click), "t": 2.0}])
+        self.assertAlmostEqual(vdur(out), 4.0, delta=0.1)
+        fast = self.d / "sfx_fast.mp4"   # with a speed-up the mix is retimed inside the graph
+        render.build_final_composite(self.base, [], None, fast, self.d, speed=1.25, sfx=[{"file": str(click), "t": 2.0}])
+        self.assertAlmostEqual(vdur(fast), 3.2, delta=0.1)
+
+    def test_behind_overlay_goes_under_the_person(self):
+        card = self.d / "card.mp4"
+        ff("-f", "lavfi", "-i", "color=c=red:s=160x288:r=30:d=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(card))
+        out = self.d / "behind.mp4"
+        render.build_final_composite(self.base, [{"file": str(card), "start_in_output": 1.0, "duration": 2.0,
+                                                  "layer": "behind"}], None, out, self.d,
+                                     background={"file": str(self.bg), "mask": str(self.mask)})
+        px = subprocess.run(["ffmpeg", "-v", "error", "-ss", "2", "-i", str(out), "-frames:v", "1", "-vf",
+                             "format=rgb24", "-f", "rawvideo", "-"], capture_output=True).stdout
+        left, right = px[(144 * 160 + 20) * 3:(144 * 160 + 20) * 3 + 3], px[(144 * 160 + 140) * 3:(144 * 160 + 140) * 3 + 3]
+        self.assertLess(left[0], 150)        # the person (grey) stays in front on the left
+        self.assertGreater(right[0], 150)    # the red card shows behind, on the right
 
     def test_background_swap_puts_the_person_over_the_backdrop(self):
         out = self.d / "bg.mp4"
