@@ -1,0 +1,15 @@
+[project]
+name = "matting"
+version = "0.1.0"
+description = "Temporal person matting (Robust Video Matting) for background swaps"
+requires-python = ">=3.10,<3.13"
+dependencies = ["torch>=2.2", "torchvision>=0.17", "numpy"]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true

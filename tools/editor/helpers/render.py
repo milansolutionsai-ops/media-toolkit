@@ -636,7 +636,11 @@ def hook_behind_text(current: str, out_label: str, lines: list[str], seconds: fl
     return f"{current}{','.join(chain)}{out_label}"
 
 
-def make_cutout(base_path: Path, seconds: float, edit_dir: Path, key: str | None = None) -> Path:
+MATTING_DIR = Path(__file__).resolve().parents[2] / "matting"
+
+
+def make_cutout(base_path: Path, seconds: float, edit_dir: Path, key: str | None = None,
+                engine: str = "u2net") -> Path:
     """Person cutout (VP9 + alpha) of the first `seconds` of the cut; only its alpha is used (as a mask on the
     current picture), so one cutout serves every grade. HyperFrames remove-background (u2net_human_seg, local, CPU).
     With `key` (mask_key: the cut itself) it's cached across renders; without, it's redone when the base changes."""
@@ -647,17 +651,24 @@ def make_cutout(base_path: Path, seconds: float, edit_dir: Path, key: str | None
     run(["ffmpeg", "-y", "-i", str(base_path), "-t", f"{seconds + 0.3:.3f}", "-an", "-c:v", "libx264",
          "-crf", "12", "-pix_fmt", "yuv420p", str(clip)], quiet=True)
     env = {k: v for k, v in os.environ.items() if k not in ("GEMINI_API_KEY", "GOOGLE_API_KEY")}
+    if engine == "rvm":   # temporal matting: no edge flicker (tools/matting)
+        print("person mask (Robust Video Matting, CPU) ...")
+        subprocess.run(["uv", "run", "--project", str(MATTING_DIR), "python", str(MATTING_DIR / "rvm.py"),
+                        str(clip), str(cut)], check=True, env=env)
+        return cut
     print("person cutout for the hook (remove-background, CPU) ...")
     subprocess.run(["npx", "--yes", "hyperframes@0.8.157", "remove-background", str(clip), "-o", str(cut),
                     "--quality", "best"], check=True, env=env, shell=os.name == "nt")
     return cut
 
 
-def mask_key(ranges: list[dict], reframe: float | None, seconds: float) -> str:
-    """Cache key for a person mask: what was cut (sources, times, zooms), not how it was graded."""
+def mask_key(ranges: list[dict], reframe: float | None, seconds: float, engine: str = "u2net") -> str:
+    """Cache key for a person mask: what was cut (sources, times, zooms) and by which matting engine, not how it
+    was graded."""
     import hashlib
     cut = [[r["source"], float(r["start"]), float(r["end"]), r.get("zoom")] for r in ranges]
-    return hashlib.sha1(json.dumps([cut, reframe, round(seconds, 2)]).encode()).hexdigest()[:10]
+    key = hashlib.sha1(json.dumps([cut, reframe, round(seconds, 2)]).encode()).hexdigest()[:10]
+    return key if engine == "u2net" else f"{key}_{engine}"
 
 
 TRANS_S = {"whip": 0.15, "zoom": 0.2, "flash": 0.07}   # half-length (s) each side of the cut
@@ -1072,7 +1083,7 @@ def build_final_composite(
     uses = int(bool(background)) + int(hook_cut)
     if mask and uses:
         inputs += ["-c:v", "libvpx-vp9", "-i", str(mask)]
-        filter_parts.append(f"[{nxt}:v]setpts=PTS-STARTPTS,format=yuva420p,alphaextract,setsar=1[pmask]")
+        filter_parts.append(f"[{nxt}:v]setpts=PTS-STARTPTS,format=yuva420p,alphaextract,setsar=1,erosion,erosion,gblur=sigma=1.2[pmask]")
         nxt += 1
         filter_parts.append(f"{current}setsar=1,split[pbase][psrc]")
         filter_parts.append("[psrc][pmask]alphamerge" + (f",split={uses}" if uses > 1 else "")
@@ -1278,9 +1289,10 @@ def main() -> None:
     background = None
     if edl.get("background"):
         total = starts[-1]
+        engine = edl["background"].get("matting", "u2net")
         background = {"file": edl["background"]["file"],
                       "mask": make_cutout(base_path, total, edit_dir,
-                                          mask_key(edl["ranges"], edl.get("reframe"), total))}
+                                          mask_key(edl["ranges"], edl.get("reframe"), total, engine), engine)}
     hook_behind = None
     if edl.get("hook_behind"):
         hb = edl["hook_behind"]

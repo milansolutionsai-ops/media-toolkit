@@ -69,6 +69,7 @@ class FilterTextTests(unittest.TestCase):
         c = render.mask_key([{"source": "A", "start": 1, "end": 2.5}], None, 3.0)
         self.assertEqual(a, b)
         self.assertNotEqual(a, c)
+        self.assertEqual(render.mask_key([{"source": "A", "start": 1, "end": 2}], None, 3.0, "rvm"), a + "_rvm")
 
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "needs ffmpeg")
