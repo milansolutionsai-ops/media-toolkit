@@ -135,7 +135,11 @@ def apply_send(vdir: Path, round_n: int, notes: list[dict], verdicts: dict[str, 
 
 
 def claim(vdir: Path, round_n: int, now: datetime) -> dict:
-    path = Path(vdir) / f"r{round_n}" / "claim.json"
+    return claim_file(Path(vdir) / f"r{round_n}" / "claim.json", now)
+
+
+def claim_file(path: Path, now: datetime) -> dict:
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {"at": now.isoformat()}
     try:
@@ -194,5 +198,24 @@ def rebuild_index(root: Path) -> None:
             "sent_at": v["rounds"][-1]["sent_at"] if n else None,
             "claimed_at": (c or {}).get("at"),
             "folder": vdir.relative_to(root).as_posix(),
+            "kind": "video",
+        })
+    for rj in sorted(root.glob("*/_style/round-*/round.json")):
+        r = read_json(rj)
+        if not r:
+            continue
+        c = read_json(rj.parent / "claim.json")
+        out.append({
+            "id": f"{r['project']}/style-{r['n']}",
+            "title": r["title"],
+            "project": r["project"],
+            "status": r["status"],
+            "round": r["n"],
+            "round_label": f"Style round {r['n']}",
+            "notes_count": len(r["candidates"]),
+            "sent_at": r.get("sent_at"),
+            "claimed_at": (c or {}).get("at"),
+            "folder": rj.parent.relative_to(root).as_posix(),
+            "kind": "style",
         })
     save_json_atomic(root / INDEX_NAME, {"updated": _now(), "videos": out})
