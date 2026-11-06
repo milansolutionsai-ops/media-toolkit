@@ -36,6 +36,7 @@ Never ask the owner to describe or prompt an edit. Every question is a reaction 
    `summary P` (all rounds by dimension).
    - Keep → becomes a rule. Maybe → an allowed option. Drop → `library.py verdict TECH BRAND drop`.
    - Notes on Maybe items shape the next round's variants.
+   - When the verdicts are recorded: `style.py done P N`, or the hook keeps announcing the round.
 6. **Next round or lock.** Build the next round from the reactions. When a round brings no new Drops, show one
    "combined" candidate with every kept choice together; if it's kept, lock.
 7. **Lock.** Write the kept choices into `<project>/STYLE_GUIDE.md` as short rules (Keep = rule, Maybe = option),
