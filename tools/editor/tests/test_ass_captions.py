@@ -108,6 +108,17 @@ class ZoomTests(unittest.TestCase):
         vf = render.segment_vf(portrait=True, hdr=False, draft=False, grade_filter="", zoom=1.1)
         self.assertEqual(vf, "scale=-2:1920,crop=trunc(iw/1.1/2)*2:trunc(ih/1.1/2)*2,scale=-2:1920")
 
+    def test_punch_in_scales_back_to_the_exact_frame_size(self):
+        # crop rounding made zoomed segments 1078 wide next to 1080 ones (2026-11-06)
+        vf = render.segment_vf(portrait=True, hdr=False, draft=False, grade_filter="", zoom=1.18, size=(1080, 1920))
+        self.assertTrue(vf.endswith("scale=1080:1920"), vf)
+
+    def test_frame_size_matches_the_unzoomed_scale(self):
+        self.assertEqual(render.scaled_size((1080, 1920), portrait=True, draft=False), (1080, 1920))
+        self.assertEqual(render.scaled_size((2160, 3840), portrait=True, draft=False), (1080, 1920))
+        self.assertEqual(render.scaled_size((1080, 1920), portrait=True, draft=True), (720, 1280))
+        self.assertEqual(render.scaled_size((1920, 1080), portrait=True, draft=False), (1080, 1920))  # rotated
+
     def test_no_zoom_unchanged(self):
         self.assertEqual(render.segment_vf(portrait=True, hdr=False, draft=False, grade_filter="eq=contrast=1.03"),
                          "scale=-2:1920,eq=contrast=1.03")

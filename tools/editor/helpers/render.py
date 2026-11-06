@@ -252,11 +252,22 @@ def probe_source_fps(video: Path) -> str | None:
 # -------- Per-segment extraction (Rule 2 + Rule 3) --------------------------
 
 
-def segment_vf(portrait: bool, hdr: bool, draft: bool, grade_filter: str, zoom: float = 1.0) -> str:
+def scaled_size(src: tuple[int, int], portrait: bool, draft: bool) -> tuple[int, int]:
+    """Frame size the plain segment scale (-2:1920 / 1920:-2, or 1280 for drafts) gives this source."""
+    sw, sh = sorted(src) if portrait else sorted(src, reverse=True)   # phone files store 1920x1080 + rotation
+    long = 1280 if draft else 1920
+    if portrait:
+        return 2 * round(long * sw / sh / 2), long
+    return long, 2 * round(long * sh / sw / 2)
+
+
+def segment_vf(portrait: bool, hdr: bool, draft: bool, grade_filter: str, zoom: float = 1.0,
+               size: tuple[int, int] | None = None) -> str:
     """Video filter for one segment: tonemap, scale, optional punch-in, grade.
 
     A punch-in (zoom > 1) crops the centre and scales back to the same frame,
-    so every segment keeps one size for the lossless concat.
+    so every segment keeps one size for the lossless concat. Pass `size` (scaled_size) so the
+    scale-back is exact: crop rounding otherwise left zoomed segments 2px narrower.
     """
     if draft:
         scale = "scale=-2:1280" if portrait else "scale=1280:-2"
@@ -268,7 +279,7 @@ def segment_vf(portrait: bool, hdr: bool, draft: bool, grade_filter: str, zoom: 
     parts.append(scale)
     if zoom and zoom > 1.0:
         parts.append(f"crop=trunc(iw/{zoom:g}/2)*2:trunc(ih/{zoom:g}/2)*2")
-        parts.append(scale)
+        parts.append(f"scale={size[0]}:{size[1]}" if size else scale)
     if grade_filter:
         parts.append(grade_filter)
     return ",".join(parts)
@@ -297,7 +308,9 @@ def extract_segment(
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    vf = segment_vf(is_portrait_source(source), is_hdr_source(source), draft, grade_filter, zoom)
+    portrait = is_portrait_source(source)
+    size = scaled_size(probe_frame_size(source), portrait, draft) if zoom and zoom > 1.0 else None
+    vf = segment_vf(portrait, is_hdr_source(source), draft, grade_filter, zoom, size)
 
     # 30ms audio fades at both edges (Rule 3) — prevent pops
     fade_out_start = max(0.0, duration - 0.03)
@@ -623,12 +636,13 @@ def hook_behind_text(current: str, out_label: str, lines: list[str], seconds: fl
     return f"{current}{','.join(chain)}{out_label}"
 
 
-def make_cutout(base_path: Path, seconds: float, edit_dir: Path) -> Path:
-    """Person cutout (VP9 + alpha) of the first `seconds` of the cut, for text behind the head.
-    HyperFrames remove-background (u2net_human_seg, local, CPU). Cached next to the base."""
+def make_cutout(base_path: Path, seconds: float, edit_dir: Path, key: str | None = None) -> Path:
+    """Person cutout (VP9 + alpha) of the first `seconds` of the cut; only its alpha is used (as a mask on the
+    current picture), so one cutout serves every grade. HyperFrames remove-background (u2net_human_seg, local, CPU).
+    With `key` (mask_key: the cut itself) it's cached across renders; without, it's redone when the base changes."""
     clip = edit_dir / "hook_clip.mp4"
-    cut = edit_dir / f"hook_cutout_{seconds + 0.3:.2f}s.webm"
-    if cut.exists() and cut.stat().st_mtime > base_path.stat().st_mtime:
+    cut = edit_dir / (f"cutout_{key}.webm" if key else f"hook_cutout_{seconds + 0.3:.2f}s.webm")
+    if cut.exists() and (key or cut.stat().st_mtime > base_path.stat().st_mtime):
         return cut
     run(["ffmpeg", "-y", "-i", str(base_path), "-t", f"{seconds + 0.3:.3f}", "-an", "-c:v", "libx264",
          "-crf", "12", "-pix_fmt", "yuv420p", str(clip)], quiet=True)
@@ -637,6 +651,74 @@ def make_cutout(base_path: Path, seconds: float, edit_dir: Path) -> Path:
     subprocess.run(["npx", "--yes", "hyperframes@0.8.157", "remove-background", str(clip), "-o", str(cut),
                     "--quality", "best"], check=True, env=env, shell=os.name == "nt")
     return cut
+
+
+def mask_key(ranges: list[dict], reframe: float | None, seconds: float) -> str:
+    """Cache key for a person mask: what was cut (sources, times, zooms), not how it was graded."""
+    import hashlib
+    cut = [[r["source"], float(r["start"]), float(r["end"]), r.get("zoom")] for r in ranges]
+    return hashlib.sha1(json.dumps([cut, reframe, round(seconds, 2)]).encode()).hexdigest()[:10]
+
+
+TRANS_S = {"whip": 0.15, "zoom": 0.2, "flash": 0.07}   # half-length (s) each side of the cut
+
+
+def transition_filters(current: str, out_label: str, kind: str, t: float, n: int, w: int, h: int,
+                       fps: int = 30) -> list[str]:
+    """A transition laid over the frames around a hard cut at `t`, so cut timing and audio stay as they are.
+    whip: the picture streaks out to the left and the next shot streaks in from the right (horizontal blur).
+    zoom: zooms hard into the outgoing shot; the incoming shot starts zoomed and settles (zoom-through).
+    flash: a white light flash peaking on the cut."""
+    k, d = f"tr{n}", TRANS_S.get(kind)
+    if kind == "flash":
+        return [f"{current}eq=brightness='0.75*exp(-pow((t-{t:.3f})/{d:.3f},2))':eval=frame{out_label}"]
+    if d is None:
+        raise ValueError(f"unknown transition {kind!r} (whip, zoom, flash)")
+    a, b = t - d, t + d
+    window = f"trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS"
+    pad = f"format=yuva420p,tpad=start_duration={a:.3f}:color=black@0"
+    if kind == "whip":
+        s = (f"if(lt(t,{t:.3f}),-W*0.18*pow(clip((t-{a:.3f})/{d:.3f},0,1),2),"
+             f"W*0.18*pow(1-clip((t-{t:.3f})/{d:.3f},0,1),2))")
+        layer = f"[{k}s]{window},scale=iw*1.4:ih*1.4,avgblur=sizeX=70:sizeY=1,{pad}[{k}l]"
+        place = f"x='-(w-W)/2+{s}':y='-(h-H)/2'"
+    else:  # zoom
+        z = f"if(lt(it,{d:.3f}),1+0.7*pow(it/{d:.3f},2),1+0.7*pow(1-(it-{d:.3f})/{d:.3f},2))"
+        layer = (f"[{k}s]{window},zoompan=z='{z}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={w}x{h}:fps={fps},"
+                 f"gblur=sigma=5,{pad}[{k}l]")
+        place = "x=0:y=0"
+    return [f"{current}split[{k}m][{k}s]", layer,
+            f"[{k}m][{k}l]overlay={place}:enable='between(t,{a:.3f},{b:.3f})'{out_label}"]
+
+
+def xray_filters(current: str, out_label: str, start: float, duration: float, n: int, scan: float = 0.45) -> list[str]:
+    """X-ray look (inverted, teal, glowing edges) revealed by a scan line moving down from `start`, held to the end."""
+    k, end = f"xr{n}", start + duration
+    return [
+        f"{current}split[{k}m][{k}s]",
+        f"[{k}s]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS,format=gray,negate,"
+        f"curves=all='0/0 0.45/0.12 1/1',format=gbrp,split[{k}a][{k}b]",
+        f"[{k}b]edgedetect=low=0.06:high=0.18,format=gbrp[{k}e]",
+        f"[{k}a][{k}e]blend=all_mode=screen,colorchannelmixer=rr=0.15:gg=0.85:bb=0.85,format=yuva420p,"
+        f"geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='255*lt(Y,H*clip(T/{scan:.3f},0,1))',"
+        f"tpad=start_duration={start:.3f}:color=black@0[{k}x]",
+        f"[{k}m][{k}x]overlay=0:0:enable='between(t,{start:.3f},{end:.3f})',"
+        f"drawbox=x=0:y='ih*clip((t-{start:.3f})/{scan:.3f},0,1)-4':w=iw:h=8:color=0x00E5E5@0.9:t=fill"
+        f":enable='between(t,{start:.3f},{start + scan:.3f})'{out_label}",
+    ]
+
+
+def bubble_layer(current: str, out_main: str, out_bubble: str, e: dict, n: int) -> list[str]:
+    """Picture-in-picture: a round crop of the footage (crop [x, y, side]) scaled to `size`, made from the frames
+    before any overlay so it can sit on top of a full-frame insert graphic."""
+    k, (cx, cy, cs), size = f"bb{n}", e["crop"], int(e["size"])
+    start, end = float(e["start"]), float(e["start"]) + float(e["duration"])
+    return [
+        f"{current}split{out_main}[{k}s]",
+        f"[{k}s]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS,crop={cs}:{cs}:{cx}:{cy},scale={size}:{size},"
+        f"format=yuva420p,geq=lum='lum(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='255*lte(hypot(X-W/2,Y-H/2),W/2-1)',"
+        f"tpad=start_duration={start:.3f}:color=black@0{out_bubble}",
+    ]
 
 
 def effective_zooms(ranges: list[dict], reframe: float | None) -> list[float]:
@@ -955,6 +1037,10 @@ def build_final_composite(
     speed: float = 1.0,
     hook_behind: dict | None = None,
     fonts_dir: Path | None = None,
+    transitions: list[dict] | None = None,
+    effects: list[dict] | None = None,
+    background: dict | None = None,
+    fps: int = 30,
 ) -> None:
     """Final pass: base → overlays (shifted to their window) → subtitles LAST → speed → out.
 
@@ -966,31 +1052,65 @@ def build_final_composite(
     has_overlays = bool(overlays)
     has_subs = subtitles_path is not None and subtitles_path.exists()
 
-    if not has_overlays and not has_subs and speed == 1.0 and not hook_behind:
+    transitions, effects = transitions or [], effects or []
+    if not (has_overlays or has_subs or speed != 1.0 or hook_behind or transitions or effects or background):
         # Nothing to do — just rename/copy base to final name
         run(["ffmpeg", "-y", "-i", str(base_path), "-c", "copy", str(out_path)], quiet=True)
         return
 
     inputs: list[str] = ["-i", str(base_path)]
     for ov in overlays:
-        ov_path = resolve_path(ov["file"], edit_dir)
-        inputs += ["-i", str(ov_path)]
+        inputs += ["-i", str(resolve_path(ov["file"], edit_dir))]
+    nxt = len(overlays) + 1
+    W, H = probe_frame_size(base_path)
 
     filter_parts: list[str] = []
     current = "[0:v]"
-    # Text behind the head: title on the footage, then the person cutout back on top
-    if hook_behind and hook_behind.get("cutout"):
-        cut_idx = len(overlays) + 1
-        inputs += ["-c:v", "libvpx-vp9", "-i", str(hook_behind["cutout"])]
+    # Person layer: the footage with the person mask as alpha (mask = remove-background cutout, grade-independent)
+    hook_cut = bool(hook_behind and hook_behind.get("cutout"))
+    mask = (background or {}).get("mask") or (hook_behind or {}).get("cutout")
+    uses = int(bool(background)) + int(hook_cut)
+    if mask and uses:
+        inputs += ["-c:v", "libvpx-vp9", "-i", str(mask)]
+        filter_parts.append(f"[{nxt}:v]setpts=PTS-STARTPTS,format=yuva420p,alphaextract,setsar=1[pmask]")
+        nxt += 1
+        filter_parts.append(f"{current}setsar=1,split[pbase][psrc]")
+        filter_parts.append("[psrc][pmask]alphamerge" + (f",split={uses}" if uses > 1 else "")
+                            + "".join(f"[p{i}]" for i in range(uses)))
+        current = "[pbase]"
+    person = iter(f"[p{i}]" for i in range(uses))
+    # Background swap: backdrop image under the person
+    if background:
+        inputs += ["-loop", "1", "-framerate", str(fps), "-i", str(resolve_path(str(background["file"]), edit_dir))]
+        filter_parts.append(f"[{nxt}:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1,"
+                            f"format=yuv420p[bgi]")
+        nxt += 1
+        filter_parts.append(f"{current}[bgi]overlay=0:0:shortest=1[bgu]")
+        filter_parts.append(f"[bgu]{next(person)}overlay=0:0:eof_action=pass[bgc]")
+        current = "[bgc]"
+    # Text behind the head: title on the picture, then the person back on top
+    if hook_cut:
         secs = float(hook_behind.get("seconds", 3))
         filter_parts.append(hook_behind_text(current, "[hbt]", hook_behind["lines"], secs, int(hook_behind["height"]),
                                              int(hook_behind["width"]), hook_behind.get("color", "0xE9E8E4"),
                                              float(hook_behind.get("top", 0.17)), bool(hook_behind.get("fill")),
                                              bool(hook_behind.get("shadow")), hook_behind.get("font_file"),
                                              float(hook_behind.get("em", 0.62))))
-        filter_parts.append(f"[{cut_idx}:v]setpts=PTS-STARTPTS,format=yuva420p[hbc]")
-        filter_parts.append(f"[hbt][hbc]overlay=0:0:eof_action=pass:enable='between(t,0,{secs:.3f})'[hb]")
+        filter_parts.append(f"[hbt]{next(person)}overlay=0:0:eof_action=pass:enable='between(t,0,{secs:.3f})'[hb]")
         current = "[hb]"
+
+    # Frame effects on the footage, before graphics go on top
+    bubbles = []
+    for n, e in enumerate(effects):
+        if e["type"] == "xray":
+            filter_parts += xray_filters(current, f"[xo{n}]", float(e["start"]), float(e["duration"]), n)
+            current = f"[xo{n}]"
+        elif e["type"] == "bubble":
+            filter_parts += bubble_layer(current, f"[bm{n}]", f"[bl{n}]", e, n)
+            current = f"[bm{n}]"
+            bubbles.append((n, e))
+        else:
+            raise ValueError(f"unknown effect {e['type']!r} (xray, bubble)")
 
     # Shift every overlay so its frame 0 lands at start_in_output. Pad the front
     # with transparent frames rather than offsetting PTS: on a real phone render
@@ -1009,25 +1129,36 @@ def build_final_composite(
             fade = f",format=yuva420p,fade=t=out:st={float(ov['duration']) - fo:.3f}:d={fo:.3f}:alpha=1"
         filter_parts.append(f"[{idx}:v]setpts=PTS-STARTPTS{fade},tpad=start_duration={t:.3f}:color=black@0[a{idx}]")
 
-    # Chain overlays on top of base
-    for idx, ov in enumerate(overlays, start=1):
-        t = float(ov["start_in_output"])
-        dur = float(ov["duration"])
-        end = t + dur
-        next_label = f"[v{idx}]"
-        x = f"x={xexpr[idx]}:y=0:" if idx in xexpr else ""
-        filter_parts.append(
-            f"{current}[a{idx}]overlay={x}enable='between(t,{t:.3f},{end:.3f})'{next_label}"
-        )
-        current = next_label
-        if idx in xexpr:  # the next shot settles in from the right
-            filter_parts += whip_settle(current, f"[w{idx}]", end)
-            current = f"[w{idx}]"
+    def chain(cur: str, over_captions: bool) -> str:
+        for idx, ov in enumerate(overlays, start=1):
+            if bool(ov.get("over_captions")) != over_captions:
+                continue
+            t = float(ov["start_in_output"])
+            end = t + float(ov["duration"])
+            x = f"x={xexpr[idx]}:y=0:" if idx in xexpr else ""
+            filter_parts.append(f"{cur}[a{idx}]overlay={x}enable='between(t,{t:.3f},{end:.3f})'[v{idx}]")
+            cur = f"[v{idx}]"
+            if idx in xexpr:  # the next shot settles in from the right
+                filter_parts.extend(whip_settle(cur, f"[w{idx}]", end))
+                cur = f"[w{idx}]"
+        return cur
 
-    # Subtitles LAST — Rule 1 (speed only retimes the finished picture)
+    current = chain(current, over_captions=False)
+    for n, e in bubbles:
+        s, d = float(e["start"]), float(e["duration"])
+        filter_parts.append(f"{current}[bl{n}]overlay={int(e['x'])}:{int(e['y'])}"
+                            f":enable='between(t,{s:.3f},{s + d:.3f})'[bo{n}]")
+        current = f"[bo{n}]"
+    for n, tr in enumerate(transitions):
+        filter_parts += transition_filters(current, f"[tv{n}]", tr["type"], float(tr["t"]), n, W, H, fps)
+        current = f"[tv{n}]"
+
+    # Subtitles LAST — Rule 1 (speed only retimes the finished picture). Exception: a full-frame takeover graphic
+    # marked over_captions goes on top, so the captions don't repeat the words it shows.
     if has_subs:
         filter_parts.append(f"{current}{subtitles_filter(subtitles_path.resolve(), fonts_dir or FONTS_DIR)}[subbed]")
         current = "[subbed]"
+    current = chain(current, over_captions=True)
     speed_vf = f"setpts=PTS/{speed}" if speed != 1.0 else "null"
     filter_parts.append(f"{current}{speed_vf}[outv]")
 
@@ -1047,7 +1178,9 @@ def build_final_composite(
     print(f"compositing → {out_path.name}")
     print(f"  overlays: {len(overlays)}, subtitles: {'yes' if has_subs else 'no'}"
           f"{f', speed x{speed}' if speed != 1.0 else ''}")
-    subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    r = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if r.returncode:
+        sys.exit("composite failed: " + r.stderr.decode(errors="replace")[-3000:] + " | filter: " + ";".join(filter_parts))
 
 
 # -------- Main ---------------------------------------------------------------
@@ -1140,23 +1273,41 @@ def main() -> None:
     speed = float(edl.get("speed", 1.0))
     brand = edl.get("brand") or {}
     fonts_dir = resolve_path(brand["fonts_dir"], edit_dir) if brand.get("fonts_dir") else None
+    # Person mask: the whole cut when the background is swapped, else just the hook seconds
+    starts = [sum(seg_durations[:i]) for i in range(len(seg_durations) + 1)]
+    background = None
+    if edl.get("background"):
+        total = starts[-1]
+        background = {"file": edl["background"]["file"],
+                      "mask": make_cutout(base_path, total, edit_dir,
+                                          mask_key(edl["ranges"], edl.get("reframe"), total))}
     hook_behind = None
     if edl.get("hook_behind"):
         hb = edl["hook_behind"]
         secs = float(hb.get("seconds", 3))
         fw, fh = probe_frame_size(base_path)
+        cut = background["mask"] if background else make_cutout(base_path, secs, edit_dir,
+                                                                  mask_key(edl["ranges"], edl.get("reframe"), secs))
         hook_behind = {"lines": hb["lines"], "seconds": secs, "height": fh, "width": fw,
                        "color": hb.get("color", "0xE9E8E4"), "top": hb.get("top", 0.17),
                        "fill": hb.get("fill"), "shadow": hb.get("shadow"), "font_file": hb.get("font_file"),
-                       "em": hb.get("em", 0.62),
-                       "cutout": make_cutout(base_path, secs, edit_dir)}
+                       "em": hb.get("em", 0.62), "cutout": cut}
+    # Transitions sit on cuts ({"cut": i} = the cut into range i); effects on ranges ({"range": i})
+    transitions = [{**tr, "t": starts[int(tr["cut"])]} for tr in edl.get("transitions") or []]
+    effects = []
+    for e in edl.get("effects") or []:
+        r = int(e["range"])
+        start = starts[r] + float(e.get("offset", 0))
+        effects.append({**e, "start": start, "duration": float(e.get("duration", starts[r + 1] - start))})
+    fx = {"transitions": transitions, "effects": effects, "background": background}
     if args.no_loudnorm:
         # Composite directly to final output
-        build_final_composite(base_path, overlays, subs_path, out_path, edit_dir, speed, hook_behind, fonts_dir)
+        build_final_composite(base_path, overlays, subs_path, out_path, edit_dir, speed, hook_behind, fonts_dir, **fx)
     else:
         # Composite to a temp file, then run loudnorm → final output
         tmp_composite = out_path.with_suffix(".prenorm.mp4")
-        build_final_composite(base_path, overlays, subs_path, tmp_composite, edit_dir, speed, hook_behind, fonts_dir)
+        build_final_composite(base_path, overlays, subs_path, tmp_composite, edit_dir, speed, hook_behind, fonts_dir,
+                              **fx)
         print("loudness normalization → social-ready (-14 LUFS / -1 dBTP / LRA 11)")
         apply_loudnorm_two_pass(tmp_composite, out_path, preview=args.draft)
         tmp_composite.unlink(missing_ok=True)
