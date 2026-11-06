@@ -24,6 +24,20 @@ Frame ranges are optional; they default to the note's own frames. Give `after` w
 Loop: register → reviewer sends notes → the hook prints "Feedback ready" on the next prompt → `claim` →
 `show` (notes, frames, seconds, stills of the exact frames) → fix → `register --fixes` → reviewer checks.
 
+## Style rounds
+
+One-variable candidates the reviewer sorts into Keep / Maybe / Drop (see `docs/STYLE_ONBOARDING.md`):
+
+```bash
+python media-toolkit/tools/review/style.py new --project my-project --title "Captions and transitions"
+python media-toolkit/tools/review/style.py add --project my-project --round 1 --render c1.mp4 --label "Bold caps" --dimension captions --origin library --technique bold-caps
+python media-toolkit/tools/review/style.py claim my-project 1
+python media-toolkit/tools/review/style.py summary my-project
+```
+
+Data: `<project>/_style/round-<n>/` (`round.json`, `reactions.json`, `c-<id>.mp4`). Every player has a safe-zone
+overlay (Instagram, TikTok, Shorts, LinkedIn).
+
 ## Folder contract
 
 ```

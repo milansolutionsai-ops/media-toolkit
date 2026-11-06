@@ -20,8 +20,11 @@ The repo is the engine only; nothing project-specific is ever committed here.
 | `tools/voice/` | **Voice generation**: Kokoro (free, local), Gemini 3.8 Flash TTS (free tier), VoiceStudio (local cloning, parked), ElevenLabs (paid). |
 | `tools/paid/` | **Paid routes, ready to run**: Kie (Kling, Seedream, Suno), Higgsfield API, Gemini Omni video, ElevenLabs SFX, Blender GPU render. Dry run until `--go`. Only when `docs/UPGRADES.md` says the trigger is met. |
 | `tools/review/` | **Review app** (local Frame.io): mark exact frames/sound in a render, notes reach Claude through a hook, before/after fix check. `review.py register/claim/show/list`. Setup: `install.py`. |
+| `tools/library/` | **Technique library**: references and techniques (what, recipe, status, brand verdicts); data in the private workspace `library/`. |
+| `tools/gate/` | **Quality gate**: flash frames, loudness, true peak, clicks at cuts, pacing vs references. Run before anyone watches a render. |
 | `tools/recording/` | **Recording**: OBS profile backup, 9:16 framing guide. |
 | `../<project>/` | One folder per project, outside the repo. Brand rules live there (`STYLE_GUIDE.md`), never in `tools/`. |
+| `docs/STYLE_ONBOARDING.md` | **Style onboarding**: references → technique library → style rounds (Keep / Maybe / Drop) → locked `STYLE_GUIDE.md`, with the quality gate. |
 | `docs/` | `knowledge/ad-craft.md` (ad research, script, music, SFX and edit techniques by pipeline stage), `UPGRADES.md` (every paid / GPU route we found, for the day the free one isn't enough), `windows-setup.md`. |
 
 A project folder usually holds `STYLE_GUIDE.md`, `SCRIPTS/`, `RECORDINGS/`, `READY TO POST/` and `_work/` (edit
