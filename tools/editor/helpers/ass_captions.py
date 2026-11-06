@@ -58,7 +58,7 @@ def header(width: int, height: int) -> str:
         f"Style: Hook,{FONT},{hook},{DARK},{DARK},{OFF_WHITE},{OFF_WHITE},"
         f"-1,0,0,0,100,100,0,0,3,{round(hook * 0.35)},0,8,{round(width * 0.1)},{round(width * 0.1)},{round(height * 0.09)},1",
         # one full sentence per cue in a translucent pill, top third (dialogue / explainer pieces)
-        f"Style: Sentence,{FONT},{round(height * 0.029)},{OFF_WHITE},{OFF_WHITE},{BOX},{BOX},"
+        f"Style: Sentence,{FONT},{round(height * 0.040)},{OFF_WHITE},{OFF_WHITE},{BOX},{BOX},"
         f"-1,0,0,0,100,100,0,0,3,{round(height * 0.009)},0,8,{round(width * 0.12)},{round(width * 0.12)},{round(height * 0.16)},1",
         # faint handle mid-frame, discourages reposts
         f"Style: Watermark,{FONT},{round(height * 0.016)},{FAINT},{FAINT},{FAINT},{FAINT},"
