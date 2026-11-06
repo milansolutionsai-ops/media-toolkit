@@ -6,6 +6,7 @@
   style.py claim P N        pick up sent reactions
   style.py show P N         reactions for one round
   style.py cancel P N       close a waiting round that shouldn't be reviewed (unblocks the next round)
+  style.py done P N         reactions processed: stop announcing the round
   style.py summary P        every round's reactions grouped by dimension, for writing STYLE_GUIDE.md rules
 
 Data: <root>/<project>/_style/round-<n>/ with round.json, reactions.json, <id>.mp4 (review copies, c1.mp4...).
@@ -108,6 +109,17 @@ def cancel_round(root: Path, project: str, n: int) -> None:
     store.rebuild_index(root)
 
 
+def mark_done(root: Path, project: str, n: int) -> None:
+    """The agent has processed the reactions: stops the hook from announcing the round again."""
+    d = style_dir(root, project, n)
+    r = _load_round(root, project, n)
+    if r["status"] != "sent":
+        raise ValueError(f"style round {n} is '{r['status']}', only a sent round can be marked done")
+    r["status"], r["done_at"] = "done", _now()
+    store.save_json_atomic(d / "round.json", r)
+    store.rebuild_index(root)
+
+
 def apply_reactions(root: Path, project: str, n: int, reactions: dict, note: str) -> None:
     d = style_dir(root, project, n)
     r = _load_round(root, project, n)
@@ -159,7 +171,7 @@ def main(argv=None) -> None:
     ad.add_argument("--dimension", required=True, choices=DIMENSIONS)
     ad.add_argument("--origin", required=True, choices=ORIGINS)
     ad.add_argument("--technique"); ad.add_argument("--explain", default="")
-    for name in ("claim", "show", "cancel"):
+    for name in ("claim", "show", "cancel", "done"):
         s = sub.add_parser(name); s.add_argument("project"); s.add_argument("n", type=int)
     sm = sub.add_parser("summary"); sm.add_argument("project")
     a = ap.parse_args(argv)
@@ -184,6 +196,9 @@ def main(argv=None) -> None:
                 sys.exit(3)
             store.rebuild_index(root)
             print(f"claimed {a.project}/style-{a.n}")
+        elif a.cmd == "done":
+            mark_done(root, a.project, a.n)
+            print(f"style round {a.n} done")
         elif a.cmd == "cancel":
             cancel_round(root, a.project, a.n)
             print(f"style round {a.n} cancelled")

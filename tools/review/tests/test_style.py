@@ -86,6 +86,16 @@ class StyleTest(unittest.TestCase):
         self.assertEqual(r["status"], "sent")
         self.assertEqual(style.new_round(self.root, P, "Round two"), 2)
 
+    def test_done_round_is_no_longer_sent(self):
+        # a processed round must stop being announced as "reactions ready"
+        n, a, b = self.two()
+        style.apply_reactions(self.root, P, n, {"c1": {"verdict": "keep"}, "c2": {"verdict": "drop"}}, "")
+        style.mark_done(self.root, P, n)
+        r = json.loads((style.style_dir(self.root, P, n) / "round.json").read_text())
+        self.assertEqual(r["status"], "done")
+        with self.assertRaises(ValueError):
+            style.mark_done(self.root, P, n)
+
     def test_summary_groups_by_dimension(self):
         n, a, b = self.two()
         style.apply_reactions(self.root, P, n, {"c1": {"verdict": "keep", "note": "love it"},

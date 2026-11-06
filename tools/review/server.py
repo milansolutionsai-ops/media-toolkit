@@ -81,7 +81,7 @@ def video_detail(vdir: Path, v: dict) -> dict:
 
 def style_summary(r: dict) -> dict:
     return {"id": f"{r['project']}/style-{r['n']}", "kind": "style", "title": r["title"], "project": r["project"],
-            "status": r["status"], "status_label": {"waiting": "Waiting for you", "sent": "Reactions sent"}.get(r["status"], "Cancelled"),
+            "status": r["status"], "status_label": {"waiting": "Waiting for you", "sent": "Reactions sent", "done": "Reactions sent"}.get(r["status"], "Cancelled"),
             "round_label": f"Style round {r['n']}", "notes_count": len(r["candidates"]), "claimed_at": None,
             "updated": r.get("sent_at") or r.get("created")}
 
