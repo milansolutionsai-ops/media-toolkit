@@ -91,6 +91,22 @@ class GateTest(unittest.TestCase):
         for got, want in zip(r["shots"], [2.0, 1.5, 1.5]):
             self.assertAlmostEqual(got, want, delta=0.07)
 
+    def test_sheets_sweep_and_edges(self):
+        clip = shots_clip(self.d / "sheets.mp4", [2, 2, 2])
+        out = self.d / "sheets"
+        r = gate.sheets(clip, out, events=[1.0], sweep_fps=3)
+        # 6s at 3 fps = 18 frames = one 6x3 sweep sheet; edges: 2 cuts + 1 event
+        self.assertEqual(len(r["sweep"]), 1)
+        self.assertEqual(len(r["edges"]), 3)
+        for p in r["sweep"] + [e["sheet"] for e in r["edges"]]:
+            self.assertTrue(Path(p).exists(), p)
+        self.assertEqual(sorted(round(e["t"]) for e in r["edges"]), [1, 2, 4])
+
+    def test_sheets_merge_close_edges(self):
+        clip = shots_clip(self.d / "close.mp4", [2, 2])
+        r = gate.sheets(clip, self.d / "close", events=[2.05], sweep_fps=1)
+        self.assertEqual(len(r["edges"]), 1)  # an event 2 frames from a cut shares its sheet
+
     def test_ref_range_flags_too_fast(self):
         r = gate.measure(shots_clip(self.d / "fast.mp4", [0.5, 0.5, 0.5, 0.5]), ref_shot_range=(1.5, 3.0))
         self.assertTrue(any("faster" in p for p in r["problems"]))

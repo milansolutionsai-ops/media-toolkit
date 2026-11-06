@@ -529,7 +529,7 @@ def chunk_sentences(words: list[dict]) -> list[list[dict]]:
 
 
 def active_word_events(words: list[dict], seg_start: float, seg_offset: float,
-                       seg_end: float) -> list[tuple[float, float, str]]:
+                       seg_end: float, brand: dict | None = None) -> list[tuple[float, float, str]]:
     """EDL "captions": "active": the chunk stays on screen, one cue per word, the spoken word on a teal box."""
     texts = [(w.get("text") or "").strip().rstrip(",;:") for w in words]
     ev = []
@@ -537,7 +537,8 @@ def active_word_events(words: list[dict], seg_start: float, seg_offset: float,
         a = max(seg_start, w["start"]) - seg_start + seg_offset
         nxt = words[i + 1]["start"] if i + 1 < len(words) else min(seg_end, w["end"])
         b = max(a + 0.05, min(seg_end, nxt) - seg_start + seg_offset)
-        ev.append((a, b, ass_captions.active_text(texts, i)))
+        ev.append((a, b, ass_captions.active_text(texts, i, (brand or {}).get("active", "box"),
+                                                  (brand or {}).get("accent"))))
     return ev
 
 
@@ -576,36 +577,49 @@ def drawtext_escape(text: str) -> str:
 
 def finalize_active(entries: list[tuple[float, float, str]]) -> list[tuple[float, float, str]]:
     """Active-word cues: trim each to the next one's start and drop flashes. Joining (finalize_cues)
-    would put two copies of the same chunk on screen."""
+    would put two copies of the same chunk on screen. A gap under CUE_GAP_CLOSE_S (a cut between two
+    chunks) is closed, so captions don't blink off for a few frames at every cut."""
     entries = sorted(entries, key=lambda e: e[0])
     out = []
     for i, (a, b, t) in enumerate(entries):
         if i + 1 < len(entries):
-            b = min(b, entries[i + 1][0])
+            nxt = entries[i + 1][0]
+            b = nxt if 0 <= nxt - b < CUE_GAP_CLOSE_S else min(b, nxt)
         if b - a >= MIN_CUE_S:
             out.append((a, b, t))
     return out
 
 
 def hook_behind_text(current: str, out_label: str, lines: list[str], seconds: float, height: int,
-                     width: int = 1080, color: str = "0xE9E8E4", top: float = 0.17) -> str:
+                     width: int = 1080, color: str = "0xE9E8E4", top: float = 0.17, fill: bool = False,
+                     shadow: bool = False, font_file: str | None = None, em: float = 0.62) -> str:
     """Hook title lines drawn on the footage (the person cutout goes on top, so the head covers them).
-    Each line fades up and rises 2% of the frame; the second starts 0.13s after the first."""
-    font = subtitles_filter_path(str(FONTS_DIR / "IBMPlexSans-Bold.ttf"))
-    # Plex Bold averages ~0.62 em per uppercase glyph: shrink so the longest line fits 90% of the width
-    size = round(min(height * 0.075, width * 0.9 / (0.62 * max(len(x) for x in lines))))
+    Each line fades up and rises 2% of the frame; the second starts 0.13s after the first. The text fades out over
+    the last 0.25s and is gone one frame early, so it never shows without the cutout in front of it.
+    fill: each line sized on its own to fill 92% of the width (short lines set huge, capped at 14% of the height).
+    shadow: a soft dark drop shadow so light text reads on a light wall.
+    em: the font's average uppercase glyph width in ems (Plex Bold 0.62; wide faces ~0.8, condensed ~0.5)."""
+    font = subtitles_filter_path(font_file or str(FONTS_DIR / "IBMPlexSans-Bold.ttf"))
+    if fill:
+        sizes = [round(min(height * 0.14, width * 0.92 / (em * max(1, len(x))))) for x in lines]
+    else:
+        size = round(min(height * 0.075, width * 0.9 / (em * max(len(x) for x in lines))))
+        sizes = [size] * len(lines)
     rise = height * 0.02
-    chain = []
-    for i, line in enumerate(lines):
+    end, fade = seconds - 0.05, 0.25
+    out_alpha = f"clip(({seconds:.3f}-t)/{fade:.3f}\,0\,1)"
+    chain, y = [], height * top
+    for i, (line, size) in enumerate(zip(lines, sizes)):
         t0 = 0.15 + i * 0.13
-        y0 = height * top + i * size * 1.05
-        p = f"clip((t-{t0:.3f})/0.4\\,0\\,1)"
-        ease = f"(1-pow(1-{p}\\,3))"
+        p = f"clip((t-{t0:.3f})/0.4\,0\,1)"
+        ease = f"(1-pow(1-{p}\,3))"
+        sh = f":shadowcolor=0x000000@0.55:shadowx={max(2, size // 25)}:shadowy={max(2, size // 25)}" if shadow else ""
         chain.append(
-            f"drawtext=fontfile='{font}':text='{drawtext_escape(line)}':fontsize={size}:fontcolor={color}"
-            f":x=(w-text_w)/2:y='{y0:.0f}+{rise:.0f}*(1-{ease})':alpha='{ease}'"
-            f":enable='between(t,0,{seconds:.3f})'"
+            f"drawtext=fontfile='{font}':text='{drawtext_escape(line)}':fontsize={size}:fontcolor={color}{sh}"
+            f":x=(w-text_w)/2:y='{y:.0f}+{rise:.0f}*(1-{ease})':alpha='{ease}*{out_alpha}'"
+            f":enable='lt(t,{end:.3f})'"
         )
+        y += size * 1.0
     return f"{current}{','.join(chain)}{out_label}"
 
 
@@ -613,10 +627,10 @@ def make_cutout(base_path: Path, seconds: float, edit_dir: Path) -> Path:
     """Person cutout (VP9 + alpha) of the first `seconds` of the cut, for text behind the head.
     HyperFrames remove-background (u2net_human_seg, local, CPU). Cached next to the base."""
     clip = edit_dir / "hook_clip.mp4"
-    cut = edit_dir / "hook_cutout.webm"
+    cut = edit_dir / f"hook_cutout_{seconds + 0.3:.2f}s.webm"
     if cut.exists() and cut.stat().st_mtime > base_path.stat().st_mtime:
         return cut
-    run(["ffmpeg", "-y", "-i", str(base_path), "-t", f"{seconds:.3f}", "-an", "-c:v", "libx264",
+    run(["ffmpeg", "-y", "-i", str(base_path), "-t", f"{seconds + 0.3:.3f}", "-an", "-c:v", "libx264",
          "-crf", "12", "-pix_fmt", "yuv420p", str(clip)], quiet=True)
     env = {k: v for k, v in os.environ.items() if k not in ("GEMINI_API_KEY", "GOOGLE_API_KEY")}
     print("person cutout for the hook (remove-background, CPU) ...")
@@ -652,6 +666,7 @@ def subtitles_filter_path(path: str) -> str:
 
 
 MIN_CUE_S = 0.05
+CUE_GAP_CLOSE_S = 0.25
 
 
 def finalize_cues(entries: list[tuple[float, float, str]]) -> list[tuple[float, float, str]]:
@@ -739,7 +754,7 @@ def build_master_srt(edl: dict, edit_dir: Path, out_path: Path,
 
         for chunk in (chunk_sentences if sentence else chunk_words)(words_in_seg):
             if as_ass and edl.get("captions") == "active":
-                entries += active_word_events(chunk, seg_start, seg_offset, seg_end)
+                entries += active_word_events(chunk, seg_start, seg_offset, seg_end, edl.get("brand"))
                 continue
             local_start = max(seg_start, chunk[0].get("start", seg_start))
             local_end = min(seg_end, chunk[-1].get("end", seg_end))
@@ -768,7 +783,7 @@ def build_master_srt(edl: dict, edit_dir: Path, out_path: Path,
             raise ValueError("an .ass subtitle file needs frame_size (width, height)")
         ass_captions.write_ass(out_path, frame_size[0], frame_size[1], entries, edl.get("hook_title"),
                                style="Sentence" if sentence else "Caption",
-                               watermark=edl.get("watermark"), total=seg_offset)
+                               watermark=edl.get("watermark"), total=seg_offset, brand=edl.get("brand"))
         print(f"master ASS → {out_path.name} ({len(entries)} cues"
               f"{', hook title' if edl.get('hook_title') else ''})")
         return
@@ -939,6 +954,7 @@ def build_final_composite(
     edit_dir: Path,
     speed: float = 1.0,
     hook_behind: dict | None = None,
+    fonts_dir: Path | None = None,
 ) -> None:
     """Final pass: base → overlays (shifted to their window) → subtitles LAST → speed → out.
 
@@ -969,7 +985,9 @@ def build_final_composite(
         secs = float(hook_behind.get("seconds", 3))
         filter_parts.append(hook_behind_text(current, "[hbt]", hook_behind["lines"], secs, int(hook_behind["height"]),
                                              int(hook_behind["width"]), hook_behind.get("color", "0xE9E8E4"),
-                                             float(hook_behind.get("top", 0.17))))
+                                             float(hook_behind.get("top", 0.17)), bool(hook_behind.get("fill")),
+                                             bool(hook_behind.get("shadow")), hook_behind.get("font_file"),
+                                             float(hook_behind.get("em", 0.62))))
         filter_parts.append(f"[{cut_idx}:v]setpts=PTS-STARTPTS,format=yuva420p[hbc]")
         filter_parts.append(f"[hbt][hbc]overlay=0:0:eof_action=pass:enable='between(t,0,{secs:.3f})'[hb]")
         current = "[hb]"
@@ -1008,7 +1026,7 @@ def build_final_composite(
 
     # Subtitles LAST — Rule 1 (speed only retimes the finished picture)
     if has_subs:
-        filter_parts.append(f"{current}{subtitles_filter(subtitles_path.resolve(), FONTS_DIR)}[subbed]")
+        filter_parts.append(f"{current}{subtitles_filter(subtitles_path.resolve(), fonts_dir or FONTS_DIR)}[subbed]")
         current = "[subbed]"
     speed_vf = f"setpts=PTS/{speed}" if speed != 1.0 else "null"
     filter_parts.append(f"{current}{speed_vf}[outv]")
@@ -1120,6 +1138,8 @@ def main() -> None:
     # 4. Composite (overlays + subtitles LAST) → intermediate (pre-loudnorm) path
     overlays = map_overlays(edl.get("overlays") or [], edl["ranges"], seg_durations)
     speed = float(edl.get("speed", 1.0))
+    brand = edl.get("brand") or {}
+    fonts_dir = resolve_path(brand["fonts_dir"], edit_dir) if brand.get("fonts_dir") else None
     hook_behind = None
     if edl.get("hook_behind"):
         hb = edl["hook_behind"]
@@ -1127,14 +1147,16 @@ def main() -> None:
         fw, fh = probe_frame_size(base_path)
         hook_behind = {"lines": hb["lines"], "seconds": secs, "height": fh, "width": fw,
                        "color": hb.get("color", "0xE9E8E4"), "top": hb.get("top", 0.17),
+                       "fill": hb.get("fill"), "shadow": hb.get("shadow"), "font_file": hb.get("font_file"),
+                       "em": hb.get("em", 0.62),
                        "cutout": make_cutout(base_path, secs, edit_dir)}
     if args.no_loudnorm:
         # Composite directly to final output
-        build_final_composite(base_path, overlays, subs_path, out_path, edit_dir, speed, hook_behind)
+        build_final_composite(base_path, overlays, subs_path, out_path, edit_dir, speed, hook_behind, fonts_dir)
     else:
         # Composite to a temp file, then run loudnorm → final output
         tmp_composite = out_path.with_suffix(".prenorm.mp4")
-        build_final_composite(base_path, overlays, subs_path, tmp_composite, edit_dir, speed, hook_behind)
+        build_final_composite(base_path, overlays, subs_path, tmp_composite, edit_dir, speed, hook_behind, fonts_dir)
         print("loudness normalization → social-ready (-14 LUFS / -1 dBTP / LRA 11)")
         apply_loudnorm_two_pass(tmp_composite, out_path, preview=args.draft)
         tmp_composite.unlink(missing_ok=True)

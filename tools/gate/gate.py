@@ -1,10 +1,13 @@
 """Quality gate: the measurable problems that make an edit look basic, checked before anyone watches it.
 
-  gate.py RENDER [--ref-shots MIN MAX] [--json]
+  gate.py RENDER [--ref-shots MIN MAX] [--json] [--sheets DIR [--events T1,T2] [--sweep-fps 3]]
 
 Checks: shot lengths (pacing, optionally against a reference range), flash frames (a single frame that matches
 neither neighbour: leftovers at a bad transition), loudness (-14 LUFS +/-1), true peak (<= -1 dBTP) and clicks at
 cuts. Exit 0 when nothing is wrong, 1 otherwise. ffmpeg only.
+
+--sheets writes contact sheets for the frame-by-frame look: the whole video at 3 fps plus every frame around each
+cut and each --events time (title and graphic in/out). The measurable checks can't see a title over a head; these can.
 """
 from __future__ import annotations
 
@@ -125,13 +128,50 @@ def measure(path: Path, ref_shot_range: tuple[float, float] | None = None) -> di
     return res
 
 
+EDGE_FRAMES = 6  # frames shown either side of a cut or event
+
+
+def sheets(path: Path, out_dir: Path, events: list[float] = (), sweep_fps: float = 3) -> dict:
+    """Contact sheets for a frame-by-frame look: the whole video at `sweep_fps` (6x3 tiles, 6s per sheet at 3 fps)
+    plus every single frame around each cut and each event (title in/out, graphic edges). Edges closer than
+    EDGE_FRAMES frames share one sheet. Returns {"sweep": [paths], "edges": [{"t", "first_frame", "sheet"}]}."""
+    path, out_dir = Path(path), Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    p = _probe(path)
+    fps, n = p["fps"], 2 * EDGE_FRAMES + 1
+    for old in out_dir.glob("*.png"):
+        old.unlink()
+    _ff(["-y", "-v", "error", "-i", str(path), "-vf", f"fps={sweep_fps},scale=180:-2,tile=6x3:padding=4",
+         "-an", str(out_dir / "sweep_%02d.png")])
+    sweep = sorted(str(x) for x in out_dir.glob("sweep_*.png"))
+    times = sorted({*scene_changes(path), *(float(e) for e in events)})
+    merged: list[float] = []
+    for t in times:
+        if not merged or t - merged[-1] > EDGE_FRAMES / fps:
+            merged.append(t)
+    edges = []
+    for t in merged:
+        first = max(0, round(t * fps) - EDGE_FRAMES)
+        sheet = out_dir / f"edge_{t:07.2f}s.png"
+        _ff(["-y", "-v", "error", "-ss", f"{first / fps:.4f}", "-i", str(path), "-frames:v", str(n),
+             "-vf", f"scale=160:-2,tile={n}x1:padding=3", "-an", str(sheet)])
+        edges.append({"t": round(t, 3), "first_frame": first, "sheet": str(sheet)})
+    return {"sweep": sweep, "edges": edges}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("render")
     ap.add_argument("--ref-shots", nargs=2, type=float, metavar=("MIN", "MAX"))
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--sheets", metavar="DIR", help="also write frame-by-frame contact sheets to DIR")
+    ap.add_argument("--events", default="", help="comma-separated times (s) of title/graphic edges to sheet")
+    ap.add_argument("--sweep-fps", type=float, default=3)
     a = ap.parse_args(argv)
     r = measure(Path(a.render), tuple(a.ref_shots) if a.ref_shots else None)
+    if a.sheets:
+        ev = [float(x) for x in a.events.split(",") if x.strip()]
+        r["sheets"] = sheets(Path(a.render), Path(a.sheets), ev, a.sweep_fps)
     if a.json:
         print(json.dumps(r, indent=2))
     else:
@@ -142,6 +182,9 @@ def main(argv=None) -> int:
             print(f"  - {line}")
         for line in r["notes"]:
             print(f"  ({line})")
+        if "sheets" in r:
+            sh = r["sheets"]
+            print(f"  sheets: {len(sh['sweep'])} sweep + {len(sh['edges'])} edge in {a.sheets} (read every one)")
     return 0 if r["ok"] else 1
 
 

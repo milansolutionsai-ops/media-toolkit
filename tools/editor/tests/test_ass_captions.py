@@ -42,6 +42,30 @@ class AssBasicsTests(unittest.TestCase):
                          "Dialogue: 1,0:00:00.00,0:00:03.00,Hook,,0,0,0,,My AI agent does my work")
 
 
+class BrandTests(unittest.TestCase):
+    def test_brand_font_and_colours_in_header(self):
+        h = ass.header(1080, 1920, {"font": "Franklin Gothic Demi Cond", "text": "#FFFFFF", "dark": "#000000"})
+        self.assertIn("Style: Caption,Franklin Gothic Demi Cond,120,&H00FFFFFF,&H00FFFFFF,&H00000000,", h)
+
+    def test_brand_box_and_height(self):
+        h = ass.header(1080, 1920, {"box": True, "margin_v": 0.3})
+        cap = next(l for l in h.splitlines() if l.startswith("Style: Caption,"))
+        f = cap.split(",")
+        self.assertEqual(f[15], "3")            # BorderStyle 3 = opaque box
+        self.assertEqual(f[-2], "576")          # MarginV = 30% of 1920
+
+    def test_hex_to_ass(self):
+        self.assertEqual(ass.ass_colour("#00B4B4"), "&H00B4B400")
+
+    def test_active_fill_colours_the_word_not_the_outline(self):
+        t = ass.active_text(["the", "waiter"], 1, mode="fill")
+        self.assertIn(r"{\1c&H00B4B400&}WAITER{\r}", t)
+        self.assertNotIn(r"\3c", t)
+
+    def test_active_box_is_default(self):
+        self.assertIn(r"\3c", ass.active_text(["a", "b"], 0))
+
+
 class RenderAssTests(unittest.TestCase):
     def build(self, edl_extra):
         with tempfile.TemporaryDirectory() as tmp:
@@ -62,6 +86,11 @@ class RenderAssTests(unittest.TestCase):
 
     def test_no_keywords_no_colour(self):
         self.assertNotIn(r"\1c", self.build({}))
+
+    def test_brand_reaches_the_ass(self):
+        text = self.build({"captions": "active", "brand": {"font": "Arial Black", "active": "fill"}})
+        self.assertIn("Style: Caption,Arial Black,", text)
+        self.assertIn(r"\1c&H00B4B400&", text)
 
     def test_hook_title_written(self):
         text = self.build({"hook_title": {"text": "Editing is not the bottleneck", "seconds": 3}})

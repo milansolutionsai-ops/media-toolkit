@@ -44,7 +44,28 @@ class FilterTextTests(unittest.TestCase):
         f = render.hook_behind_text("[0:v]", "[hb]", ["TEXT BEHIND", "YOUR HEAD"], seconds=3.0, height=1920)
         self.assertEqual(f.count("drawtext="), 2)
         self.assertIn("TEXT BEHIND", f)
-        self.assertIn("between(t,0,3.000)", f)
+
+
+    def test_hook_text_fades_out_before_the_cutout_ends(self):
+        f = render.hook_behind_text("[0:v]", "[hb]", ["AI EDITS"], seconds=3.0, height=1920)
+        self.assertNotIn("between(t,0,3.000)", f)      # never shown on the last frame, where the cutout may be gone
+        self.assertIn("lt(t,2.950)", f)
+        self.assertIn("(3.000-t)/0.250", f)             # fades out over the last 0.25s
+
+    def test_hook_fill_sizes_each_line_to_the_width(self):
+        f = render.hook_behind_text("[0:v]", "[hb]", ["AI", "EDITS MY VIDEOS"], 3.0, 1920, width=1080, fill=True)
+        sizes = [int(x.split(":")[0]) for x in f.split("fontsize=")[1:]]
+        self.assertGreater(sizes[0], sizes[1])          # the short line is set bigger
+        self.assertLessEqual(max(sizes), round(1920 * 0.14))
+
+    def test_hook_fill_respects_a_wider_font(self):
+        f = render.hook_behind_text("[0:v]", "[hb]", ["MY VIDEOS"], 3.0, 1920, width=1080, fill=True, em=0.8)
+        size = int(f.split("fontsize=")[1].split(":")[0])
+        self.assertLessEqual(size * 0.8 * len("MY VIDEOS"), 1080 * 0.92 + 1)
+
+    def test_hook_shadow_for_readability(self):
+        f = render.hook_behind_text("[0:v]", "[hb]", ["AI EDITS"], 3.0, 1920, shadow=True)
+        self.assertIn("shadowcolor=", f)
 
 
 class ActiveWordTests(unittest.TestCase):
@@ -53,6 +74,11 @@ class ActiveWordTests(unittest.TestCase):
         out = render.finalize_active(ev)
         self.assertEqual([t for _, _, t in out], ["B", "C"])   # a flash is dropped, never joined into two lines
         self.assertTrue(all(out[i][1] <= out[i + 1][0] for i in range(len(out) - 1)))
+
+    def test_short_gaps_between_cues_are_closed(self):
+        out = render.finalize_active([(0.0, 1.0, "A"), (1.1, 2.0, "B"), (3.0, 4.0, "C")])
+        self.assertEqual(out[0][1], 1.1)    # a 0.1s blink at a cut is closed
+        self.assertEqual(out[1][1], 2.0)    # a real pause (1s) keeps the screen clear
 
     def test_hook_title_shrinks_to_fit_long_lines(self):
         f = render.hook_behind_text("[0:v]", "[hb]", ["MY VIDEOS NOW EDIT THEMSELVES"], 3.0, 1920, width=1080)

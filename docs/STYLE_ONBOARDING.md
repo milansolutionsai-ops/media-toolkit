@@ -45,7 +45,12 @@ Never ask the owner to describe or prompt an edit. Every question is a reaction 
 
 1. `gate.py RENDER [--ref-shots MIN MAX]`: flash frames, loudness (-14 LUFS ±1), true peak (≤ -1 dBTP), clicks
    at cuts, pacing against the references' shot lengths.
-2. Every transition frame by frame (the editor's `timeline_view` around each cut).
+2. **Frame by frame, start to finish:** `gate.py RENDER --sheets DIR --events T1,T2,...` and read every sheet it
+   writes: the whole video at 3 fps, plus every single frame around each event. Pass as events every cut (jump
+   cuts on one angle are invisible to scene detection, so take them from the EDL, divided by the EDL speed) and
+   every title or graphic start and end. Look for: text over a head or face, captions blinking off at a cut,
+   flashes, wrong frames in overlays, anything in a platform safe zone. Costs session time only (about 1-2k
+   tokens per sheet, ~25 sheets for a 60s video), no API spend.
 3. Sound: earshot `timeline` + `critique` on the mix (voice level, music under voice, SFX timing).
 4. Safe zones: check captions and graphics with the review app's safe-zone overlay for the target platform.
 5. **Fresh critic.** A separate agent gets the render, the references and the brand guide, and is told to roast,
