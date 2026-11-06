@@ -24,6 +24,32 @@ class LibraryTest(unittest.TestCase):
         refs = json.loads((self.root / "library" / "references.json").read_text())
         self.assertEqual(len(refs), 1)
 
+    def test_youtube_ids_are_separate_references(self):
+        a = lib.add_reference(self.root, "https://www.youtube.com/watch?v=AAAA&utm_source=x", "youtube", "a", "")
+        b = lib.add_reference(self.root, "https://youtube.com/watch?v=BBBB", "youtube", "b", "")
+        c = lib.add_reference(self.root, "https://youtube.com/watch?si=zz&v=AAAA", "youtube", "a", "")
+        self.assertNotEqual(a["id"], b["id"])
+        self.assertEqual(a["id"], c["id"])
+
+    def test_unknown_ref_leaves_nothing_half_saved(self):
+        with self.assertRaises(KeyError):
+            lib.add_technique(self.root, "Orphan", "x", "y", "missing", ref_id="r-nope")
+        self.assertEqual(lib.find(self.root, "orphan"), [])
+
+    def test_cli_unknown_id_exits_cleanly(self):
+        import os, subprocess
+        r = subprocess.run([sys.executable, str(Path(__file__).resolve().parents[1] / "library.py"), "link", "r-x", "t-y"],
+                           env=dict(os.environ, REVIEW_ROOT=str(self.root)), capture_output=True, text=True)
+        self.assertEqual(r.returncode, 2)
+        self.assertNotIn("Traceback", r.stderr)
+
+    def test_update_technique(self):
+        lib.add_technique(self.root, "Orbit", "text circles", "todo", "missing")
+        t = lib.update_technique(self.root, "orbit", status="have", tool="tools/motion/orbit")
+        self.assertEqual((t["status"], t["tool"], t["recipe"]), ("have", "tools/motion/orbit", "todo"))
+        with self.assertRaises(ValueError):
+            lib.update_technique(self.root, "orbit", status="done")
+
     def test_add_technique_merges_seen_in(self):
         r1 = lib.add_reference(self.root, "https://a.example/1", "web", "a", "")
         r2 = lib.add_reference(self.root, "https://b.example/2", "web", "b", "")

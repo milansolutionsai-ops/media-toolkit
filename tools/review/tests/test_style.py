@@ -47,7 +47,7 @@ class StyleTest(unittest.TestCase):
         n, a, b = self.two()
         d = style.style_dir(self.root, P, n)
         self.assertEqual((a["id"], b["id"]), ("c1", "c2"))
-        self.assertTrue((d / "c-c1.mp4").exists() and (d / "c-c2.mp4").exists())
+        self.assertTrue((d / "c1.mp4").exists() and (d / "c2.mp4").exists())
         r = json.loads((d / "round.json").read_text())
         self.assertEqual((r["status"], r["candidates"][1]["origin"]), ("waiting", "claude"))
 
@@ -55,6 +55,24 @@ class StyleTest(unittest.TestCase):
         self.two()
         with self.assertRaises(style.RoundOpen):
             style.new_round(self.root, P, "Round two")
+
+    def test_cancel_open_round_unblocks_next(self):
+        n, a, b = self.two()
+        style.cancel_round(self.root, P, n)
+        r = json.loads((style.style_dir(self.root, P, n) / "round.json").read_text())
+        self.assertEqual(r["status"], "cancelled")
+        self.assertEqual(style.new_round(self.root, P, "Round two"), 2)
+        with self.assertRaises(ValueError):
+            style.cancel_round(self.root, P, 2) if False else style.apply_reactions(self.root, P, n, {}, "")
+
+    def test_candidate_file_named_by_id(self):
+        n, a, b = self.two()
+        self.assertTrue((style.style_dir(self.root, P, n) / "c1.mp4").exists())
+
+    def test_summary_tolerates_bad_reactions_file(self):
+        n, a, b = self.two()
+        (style.style_dir(self.root, P, n) / "reactions.json").write_text("{}")
+        self.assertIn("Style reactions", style.summary(self.root, P))
 
     def test_reactions_require_all_verdicts(self):
         n, a, b = self.two()

@@ -49,7 +49,6 @@ class StyleServerTest(unittest.TestCase):
         s, b = self.req(f"/api/style/{P}/1")
         self.assertEqual(s, 200)
         text = b.decode()
-        self.assertNotIn("c-c1.mp4\"", text.replace("/c-c1.mp4", ""))
         self.assertNotIn("_style", text)
         d = json.loads(b)
         self.assertEqual([c["origin"] for c in d["candidates"]], ["library", "claude"])

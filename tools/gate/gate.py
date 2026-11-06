@@ -53,12 +53,14 @@ def flash_frames(lumas: list[float]) -> list[int]:
             if abs(lumas[n] - lumas[n - 1]) > FLASH_DIFF and abs(lumas[n] - lumas[n + 1]) > FLASH_DIFF]
 
 
-def loudness(path: Path) -> tuple[float, float]:
+def loudness(path: Path) -> tuple[float, float] | None:
     r = _ff(["-i", str(path), "-vn", "-af", "ebur128=peak=true", "-f", "null", "-"]).stderr.decode(errors="replace")
-    summary = r[r.rfind("Summary:"):]
-    i = float(re.search(r"I:\s+(-?[\d.]+|-inf) LUFS", summary).group(1).replace("-inf", "-70"))
-    tp = float(re.search(r"Peak:\s+(-?[\d.]+|-inf) dBFS", summary).group(1).replace("-inf", "-70"))
-    return i, tp
+    summary = r[r.rfind("Summary:"):] if "Summary:" in r else ""
+    i = re.search(r"I:\s+(-?[\d.]+|-inf) LUFS", summary)
+    tp = re.search(r"Peak:\s+(-?[\d.]+|-inf) dBFS", summary)
+    if not (i and tp):
+        return None
+    return float(i.group(1).replace("-inf", "-70")), float(tp.group(1).replace("-inf", "-70"))
 
 
 def clicks_at(path: Path, cuts: list[float]) -> list[float]:
@@ -104,7 +106,11 @@ def measure(path: Path, ref_shot_range: tuple[float, float] | None = None) -> di
         elif res["median_shot"] > hi:
             probs.append(f"Median shot {res['median_shot']:.2f}s is slower than the reference ({lo}-{hi}s)")
     if p["has_audio"]:
-        lufs, tp = loudness(path)
+        lt = loudness(path)
+    if p["has_audio"] and lt is None:
+        res["notes"].append("Audio present but loudness couldn't be measured: check the track by ear")
+    elif p["has_audio"]:
+        lufs, tp = lt
         res["loudness_lufs"], res["true_peak_dbtp"] = lufs, tp
         if abs(lufs - TARGET_LUFS) > LUFS_TOL:
             probs.append(f"Loudness {lufs:.1f} LUFS, target {TARGET_LUFS:.0f} (+/-{LUFS_TOL:.0f})")

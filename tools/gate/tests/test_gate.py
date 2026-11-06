@@ -70,6 +70,21 @@ class GateTest(unittest.TestCase):
         self.assertIsNone(r["loudness_lufs"])
         self.assertTrue(any("no audio" in n.lower() for n in r["notes"]))
 
+    def test_unmeasurable_audio_is_not_a_crash(self):
+        import unittest.mock as um
+        orig = gate._ff
+
+        def fake(args):
+            r = orig(args)
+            if "ebur128=peak=true" in " ".join(args):
+                r.stderr = b"no summary here"
+            return r
+
+        with um.patch.object(gate, "_ff", side_effect=fake):
+            r = gate.measure(shots_clip(self.d / "odd.mp4", [2, 2]))
+        self.assertIsNone(r["loudness_lufs"])
+        self.assertTrue(any("loudness" in n.lower() for n in r["notes"]))
+
     def test_shot_lengths(self):
         r = gate.measure(shots_clip(self.d / "shots.mp4", [2, 1.5, 1.5]))
         self.assertEqual(len(r["shots"]), 3)

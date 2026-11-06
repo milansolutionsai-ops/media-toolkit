@@ -35,7 +35,7 @@ python media-toolkit/tools/review/style.py claim my-project 1
 python media-toolkit/tools/review/style.py summary my-project
 ```
 
-Data: `<project>/_style/round-<n>/` (`round.json`, `reactions.json`, `c-<id>.mp4`). Every player has a safe-zone
+Data: `<project>/_style/round-<n>/` (`round.json`, `reactions.json`, `c1.mp4`, `c2.mp4`...). Every player has a safe-zone
 overlay (Instagram, TikTok, Shorts, LinkedIn).
 
 ## Folder contract

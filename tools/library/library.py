@@ -11,6 +11,7 @@ Data lives in <root>/library/ (private workspace, root = env REVIEW_ROOT or the 
                       [--works-when X] [--fails-when Y] [--ref REF_ID]
   library.py link REF_ID TECH_ID
   library.py verdict TECH_ID BRAND keep|maybe|drop
+  library.py update TECH_ID [--status S] [--recipe R] [--tool T] ...
   library.py find TEXT
   library.py render
 """
@@ -25,7 +26,7 @@ import sys
 import unicodedata
 from datetime import date
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 STATUSES = ("have", "partial", "missing")
 VERDICTS = ("keep", "maybe", "drop")
@@ -61,10 +62,16 @@ def slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", s).strip("-")[:60] or "item"
 
 
+TRACKING = ("utm_", "igsh", "si", "fbclid", "gclid", "feature", "pp", "t", "ref", "s")
+
+
 def normalise_url(url: str) -> str:
+    """Same video = same key: lower-case host without www, no trailing slash, tracking params dropped,
+    id-carrying params (YouTube's v=, etc.) kept and sorted."""
     u = urlsplit(url.strip())
-    host = u.netloc.lower().removeprefix("www.")
-    return f"{host}{u.path.rstrip('/')}"
+    host = u.netloc.lower().removeprefix("www.").removeprefix("m.")
+    keep = sorted((k, v) for k, v in parse_qsl(u.query) if not any(k == t or k.startswith(t) for t in TRACKING))
+    return f"{host}{u.path.rstrip('/')}" + (f"?{urlencode(keep)}" if keep else "")
 
 
 def add_reference(root: Path, url: str, platform: str, creator: str, notes: str = "") -> dict:
@@ -87,6 +94,8 @@ def add_technique(root: Path, name: str, what: str, recipe: str, status: str, to
                   works_when: str = "", fails_when: str = "", ref_id: str | None = None) -> dict:
     if status not in STATUSES:
         raise ValueError(f"status must be one of {STATUSES}")
+    if ref_id and not any(r["id"] == ref_id for r in _load(root, "references.json")):
+        raise KeyError(f"unknown reference {ref_id}")
     techs = _load(root, "techniques.json")
     tid = slug(name)
     t = next((x for x in techs if x["id"] == tid), None)
@@ -98,6 +107,22 @@ def add_technique(root: Path, name: str, what: str, recipe: str, status: str, to
     if ref_id:
         link(root, ref_id, tid)
         t = next(x for x in _load(root, "techniques.json") if x["id"] == tid)
+    return t
+
+
+UPDATABLE = ("name", "what", "recipe", "works_when", "fails_when", "status", "tool", "cost")
+
+
+def update_technique(root: Path, technique_id: str, **fields) -> dict:
+    """Change an entry's fields (e.g. status missing -> have once the tool exists). Empty values are ignored."""
+    if fields.get("status") and fields["status"] not in STATUSES:
+        raise ValueError(f"status must be one of {STATUSES}")
+    techs = _load(root, "techniques.json")
+    t = next((x for x in techs if x["id"] == technique_id), None)
+    if t is None:
+        raise KeyError(f"unknown technique {technique_id}")
+    t.update({k: v for k, v in fields.items() if k in UPDATABLE and v})
+    _save(root, "techniques.json", techs)
     return t
 
 
@@ -167,11 +192,25 @@ def main(argv=None) -> None:
         t.add_argument(f"--{f}", default="")
     ln = sub.add_parser("link"); ln.add_argument("ref_id"); ln.add_argument("tech_id")
     v = sub.add_parser("verdict"); v.add_argument("tech_id"); v.add_argument("brand"); v.add_argument("verdict", choices=VERDICTS)
+    up = sub.add_parser("update"); up.add_argument("tech_id")
+    for f in UPDATABLE:
+        up.add_argument(f"--{f.replace('_', '-')}", default="", **({"choices": STATUSES} if f == "status" else {}))
     fd = sub.add_parser("find"); fd.add_argument("text")
     sub.add_parser("render")
     args = ap.parse_args(argv)
     root = library_root()
-    if args.cmd == "add-ref":
+    try:
+        _run(args, root)
+    except (KeyError, ValueError) as e:
+        print(str(e).strip("'\""), file=sys.stderr)
+        return 2
+    return 0
+
+
+def _run(args, root: Path) -> None:
+    if args.cmd == "update":
+        print(json.dumps(update_technique(root, args.tech_id, **{f: getattr(args, f) for f in UPDATABLE})))
+    elif args.cmd == "add-ref":
         print(json.dumps(add_reference(root, args.url, args.platform, args.creator, args.notes)))
     elif args.cmd == "add-tech":
         print(json.dumps(add_technique(root, args.name, args.what, args.recipe, args.status, args.tool, args.cost,
@@ -185,7 +224,7 @@ def main(argv=None) -> None:
             print(f"{x['id']}\t{x['status']}\t{x['what']}")
     else:
         print(render(root))
-    if args.cmd != "render" and args.cmd != "find":
+    if args.cmd not in ("render", "find"):
         render(root)
 
 

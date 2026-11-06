@@ -5,9 +5,10 @@
                [--technique ID] [--explain TEXT]
   style.py claim P N        pick up sent reactions
   style.py show P N         reactions for one round
+  style.py cancel P N       close a waiting round that shouldn't be reviewed (unblocks the next round)
   style.py summary P        every round's reactions grouped by dimension, for writing STYLE_GUIDE.md rules
 
-Data: <root>/<project>/_style/round-<n>/ with round.json, reactions.json, c-<id>.mp4 (review copies).
+Data: <root>/<project>/_style/round-<n>/ with round.json, reactions.json, <id>.mp4 (review copies, c1.mp4...).
 """
 from __future__ import annotations
 
@@ -88,13 +89,23 @@ def add_candidate(root: Path, project: str, n: int, render: Path, label: str, di
     cid = f"c{len(r['candidates']) + 1}"
     p = media.probe(render)
     fps = media.snap_fps(p["fps"])
-    media.make_review_copy(render, d / f"c-{cid}.mp4", fps)
+    media.make_review_copy(render, d / f"{cid}.mp4", fps)
     c = {"id": cid, "label": label, "dimension": dimension, "origin": origin, "technique": technique,
-         "explain": explain, "file": f"c-{cid}.mp4", "width": p["width"], "height": p["height"], "fps": fps}
+         "explain": explain, "file": f"{cid}.mp4", "width": p["width"], "height": p["height"], "fps": fps}
     r["candidates"].append(c)
     store.save_json_atomic(d / "round.json", r)
     store.rebuild_index(root)
     return c
+
+
+def cancel_round(root: Path, project: str, n: int) -> None:
+    d = style_dir(root, project, n)
+    r = _load_round(root, project, n)
+    if r["status"] != "waiting":
+        raise ValueError(f"style round {n} is '{r['status']}', only a waiting round can be cancelled")
+    r["status"] = "cancelled"
+    store.save_json_atomic(d / "round.json", r)
+    store.rebuild_index(root)
 
 
 def apply_reactions(root: Path, project: str, n: int, reactions: dict, note: str) -> None:
@@ -124,7 +135,7 @@ def summary(root: Path, project: str) -> str:
         if rx.get("note"):
             notes.append(f"Round {r['n']} note: {rx['note']}")
         for c in r["candidates"]:
-            v = rx["reactions"].get(c["id"], {})
+            v = rx.get("reactions", {}).get(c["id"], {})
             tag = " (Claude's idea)" if c["origin"] == "claude" else f" (library: {c['technique']})" if c.get("technique") else ""
             line = f"  {v.get('verdict', '?').upper()} {c['label']}{tag}, round {r['n']}"
             if v.get("note"):
@@ -148,7 +159,7 @@ def main(argv=None) -> None:
     ad.add_argument("--dimension", required=True, choices=DIMENSIONS)
     ad.add_argument("--origin", required=True, choices=ORIGINS)
     ad.add_argument("--technique"); ad.add_argument("--explain", default="")
-    for name in ("claim", "show"):
+    for name in ("claim", "show", "cancel"):
         s = sub.add_parser(name); s.add_argument("project"); s.add_argument("n", type=int)
     sm = sub.add_parser("summary"); sm.add_argument("project")
     a = ap.parse_args(argv)
@@ -173,6 +184,9 @@ def main(argv=None) -> None:
                 sys.exit(3)
             store.rebuild_index(root)
             print(f"claimed {a.project}/style-{a.n}")
+        elif a.cmd == "cancel":
+            cancel_round(root, a.project, a.n)
+            print(f"style round {a.n} cancelled")
         elif a.cmd == "show":
             r = _load_round(root, a.project, a.n)
             rx = store.read_json(style_dir(root, a.project, a.n) / "reactions.json", {}) or {}

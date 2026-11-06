@@ -81,7 +81,7 @@ def video_detail(vdir: Path, v: dict) -> dict:
 
 def style_summary(r: dict) -> dict:
     return {"id": f"{r['project']}/style-{r['n']}", "kind": "style", "title": r["title"], "project": r["project"],
-            "status": r["status"], "status_label": "Waiting for you" if r["status"] == "waiting" else "Reactions sent",
+            "status": r["status"], "status_label": {"waiting": "Waiting for you", "sent": "Reactions sent"}.get(r["status"], "Cancelled"),
             "round_label": f"Style round {r['n']}", "notes_count": len(r["candidates"]), "claimed_at": None,
             "updated": r.get("sent_at") or r.get("created")}
 
@@ -96,7 +96,7 @@ def style_detail(root: Path, project: str, n: int) -> dict | None:
     rx = store.read_json(d / "reactions.json", {}) or {}
     cands = [{"id": c["id"], "label": c["label"], "dimension": c["dimension"], "origin": c["origin"],
               "explain": c.get("explain", ""), "width": c["width"], "height": c["height"],
-              "video_url": f"/media/{project}/style-{n}/c-{c['id']}.mp4"} for c in r["candidates"]]
+              "video_url": f"/media/{project}/style-{n}/{c['id']}.mp4"} for c in r["candidates"]]
     return {"project": project, "n": n, "title": r["title"], "status": r["status"], "candidates": cands,
             "reactions": rx.get("reactions", {}), "note": rx.get("note", "")}
 
@@ -212,13 +212,13 @@ class Handler(BaseHTTPRequestHandler):
             claims = {e["id"]: e.get("claimed_at") for e in
                       (store.read_json(self.root / store.INDEX_NAME, {}) or {}).get("videos", [])}
             styles = [dict(style_summary(r), claimed_at=claims.get(f"{r['project']}/style-{r['n']}"))
-                      for _, r in style.iter_rounds(self.root)]
+                      for _, r in style.iter_rounds(self.root) if r["status"] != "cancelled"]
             return self._json(vids + styles)
         m = re.fullmatch(rf"/api/style/({NAME})/(\d+)", path)
         if m:
             d = style_detail(self.root, m.group(1), int(m.group(2)))
             return self._json(d) if d else self._404()
-        m = re.fullmatch(rf"/media/({NAME})/style-(\d+)/(c-c\d+\.mp4)", path)
+        m = re.fullmatch(rf"/media/({NAME})/style-(\d+)/(c\d+\.mp4)", path)
         if m:
             if ".." in m.group(1):
                 return self._404()

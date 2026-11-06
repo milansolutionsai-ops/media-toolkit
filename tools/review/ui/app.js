@@ -63,7 +63,9 @@ async function refreshPointer() {
   box.hidden = !sent.length;
   if (!sent.length) return;
   const v = sent[0];
-  const text = `Feedback ready: ${v.project} / ${v.title}, ${v.round_label}, ${v.notes_count} notes` +
+  const text = (v.kind === "style"
+    ? `Style reactions ready: ${v.project} / ${v.title}, ${v.round_label}, ${v.notes_count} candidates`
+    : `Feedback ready: ${v.project} / ${v.title}, ${v.round_label}, ${v.notes_count} notes`) +
     (sent.length > 1 ? ` (+${sent.length - 1} more)` : "");
   document.getElementById("pointer-text").textContent = text;
   document.getElementById("pointer-copy").onclick = () => navigator.clipboard.writeText(text);
