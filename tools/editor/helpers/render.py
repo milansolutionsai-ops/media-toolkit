@@ -731,6 +731,26 @@ def xray_filters(current: str, out_label: str, start: float, duration: float, n:
     ]
 
 
+SFX_REL_DB = -12   # default: an effect's loudest moment sits 12 dB under the voice (Milan, round 6: "at least 10 dB")
+
+
+def sfx_gain(voice_lufs: float, sfx_peak_lufs: float, rel_db: float = SFX_REL_DB) -> float:
+    """Gain (dB) that puts an SFX's loudest moment rel_db under the voice's integrated loudness."""
+    return min(0.0, voice_lufs + rel_db - sfx_peak_lufs)   # never boost: a bad reading must not blow the mix up
+
+
+def ebur128_levels(path: Path) -> tuple[float | None, float | None]:
+    """(integrated LUFS, loudest momentary LUFS) of a file's audio, or None where unmeasurable."""
+    # apad: the momentary meter needs 400 ms, so a 0.2 s hit would read as near-silence and get a huge gain
+    r = subprocess.run(["ffmpeg", "-hide_banner", "-nostats", "-i", str(path), "-vn", "-af", "apad=pad_dur=0.5,ebur128",
+                        "-f", "null", "-"], capture_output=True, text=True)
+    err = r.stderr
+    summary = err[err.rfind("Summary:"):] if "Summary:" in err else ""
+    i = re.search(r"I:\s+(-?[\d.]+) LUFS", summary)
+    ms = [float(m) for m in re.findall(r"\bM:\s*(-?[\d.]+)", err[:err.rfind("Summary:")] if summary else err)]
+    return (float(i.group(1)) if i else None, max(ms) if ms else None)
+
+
 def bg_zoom_expr(windows: list[tuple[float, float, float]]) -> str:
     """zoompan z for the background: the punch-in zoom inside each (start, end, zoom) window, else 1."""
     z = "1"
@@ -1050,8 +1070,9 @@ def apply_loudnorm_two_pass(
     print(f"    measured: I={measurement['input_i']} LUFS  "
           f"TP={measurement['input_tp']}  LRA={measurement['input_lra']}")
 
-    # brick-wall after the linear gain: SFX transients would otherwise poke above the true-peak target
-    filter_str = f"{loudnorm_filter(measurement)},alimiter=limit=0.71:attack=5:release=50:level=false"
+    # brick-wall after the linear gain (SFX transients would otherwise poke above the true-peak target). Resample
+    # to 48k FIRST: loudnorm runs at 192k, and resampling after the limiter recreated the peaks it had removed.
+    filter_str = f"{loudnorm_filter(measurement)},aresample=48000,alimiter=limit=0.79:attack=5:release=50:level=false"
     cmd = [
         "ffmpeg", "-y", "-hide_banner", "-nostats",
         "-i", str(input_path),
@@ -1215,10 +1236,16 @@ def build_final_composite(
     speed_vf = f"setpts=PTS/{speed}" if speed != 1.0 else "null"
     filter_parts.append(f"{current}{speed_vf}[outv]")
 
-    # Sound effects: each placed at its composite time, mixed under the voice, then the speed change on the whole mix
+    # Sound effects: each placed at its composite time, mixed under the voice, then the speed change on the whole mix.
+    # Level: "gain_db" if given, else measured so its loudest moment sits rel_db (default -12) under the voice.
     amap = "0:a"
+    voice = ebur128_levels(base_path)[0] if any("gain_db" not in e for e in sfx) else None
     if sfx:
         for i, e in enumerate(sfx):
+            if "gain_db" not in e:
+                peak = ebur128_levels(resolve_path(str(e["file"]), edit_dir))[1]
+                e = {**e, "gain_db": sfx_gain(voice, peak, float(e.get("rel_db", SFX_REL_DB)))
+                     if voice is not None and peak is not None else -24}
             inputs += ["-i", str(resolve_path(str(e["file"]), edit_dir))]
             ms = max(0, round((float(e["t"]) - float(e.get("apex", 0))) * 1000))
             filter_parts.append(f"[{nxt}:a]aresample=48000,aformat=channel_layouts=stereo,"

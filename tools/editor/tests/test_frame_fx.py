@@ -77,6 +77,16 @@ class FilterTextTests(unittest.TestCase):
         self.assertIn("1.18", z)
         self.assertEqual(render.bg_zoom_expr([]), "1")
 
+    def test_sfx_gain_sits_under_the_voice(self):
+        # an SFX whose loudest moment is -15 LUFS, voice at -25 LUFS, wanted 12 dB under: -22 dB of gain
+        self.assertAlmostEqual(render.sfx_gain(voice_lufs=-25.0, sfx_peak_lufs=-15.0, rel_db=-12), -22.0)
+        self.assertEqual(render.sfx_gain(voice_lufs=-25.0, sfx_peak_lufs=-120.0, rel_db=-12), 0.0)   # never boosts
+
+    def test_short_hit_measures_its_real_loudness(self):
+        hit = Path(tempfile.mkdtemp()) / "hit.wav"
+        ff("-f", "lavfi", "-i", "sine=f=200:d=0.2", str(hit))
+        self.assertGreater(render.ebur128_levels(hit)[1], -40)   # a 0.2 s tone is not near-silent
+
     def test_xray_scans_down_from_its_start(self):
         f = ";".join(render.xray_filters("[v]", "[o]", start=3.0, duration=1.2, n=0))
         self.assertIn("negate", f)
