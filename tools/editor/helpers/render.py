@@ -731,7 +731,7 @@ def xray_filters(current: str, out_label: str, start: float, duration: float, n:
     ]
 
 
-SFX_REL_DB = -12   # default: an effect's loudest moment sits 12 dB under the voice (Milan, round 6: "at least 10 dB")
+SFX_REL_DB = -15   # default: an effect's loudest moment sits 15 dB under the voice (Milan, round 7)
 
 
 def sfx_gain(voice_lufs: float, sfx_peak_lufs: float, rel_db: float = SFX_REL_DB) -> float:
@@ -1237,7 +1237,7 @@ def build_final_composite(
     filter_parts.append(f"{current}{speed_vf}[outv]")
 
     # Sound effects: each placed at its composite time, mixed under the voice, then the speed change on the whole mix.
-    # Level: "gain_db" if given, else measured so its loudest moment sits rel_db (default -12) under the voice.
+    # Level: "gain_db" if given, else measured so its loudest moment sits rel_db (default -15) under the voice.
     amap = "0:a"
     voice = ebur128_levels(base_path)[0] if any("gain_db" not in e for e in sfx) else None
     if sfx:
