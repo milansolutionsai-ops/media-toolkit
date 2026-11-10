@@ -156,6 +156,17 @@ class RenderTests(unittest.TestCase):
         self.assertLess(left[0], 150)        # the person (grey) stays in front on the left
         self.assertGreater(right[0], 150)    # the red card shows behind, on the right
 
+    def test_shift_up_keeps_the_frame_size(self):
+        card = self.d / "tall.mp4"
+        ff("-f", "lavfi", "-i", "color=c=red:s=160x288:r=30:d=2", "-c:v", "libx264", "-pix_fmt", "yuv420p", str(card))
+        out = self.d / "shift.mp4"
+        render.build_final_composite(self.base, [{"file": str(card), "start_in_output": 1.0, "duration": 2.0,
+                                                  "shift_up": 40, "fill": "0x0000FF"}], None, out, self.d)
+        px = subprocess.run(["ffmpeg", "-v", "error", "-ss", "2", "-i", str(out), "-frames:v", "1", "-vf",
+                             "crop=1:1:80:280,format=rgb24", "-f", "rawvideo", "-"], capture_output=True).stdout
+        self.assertGreater(px[2], 150)       # the bottom strip is the fill colour (blue), not the graphic
+        self.assertAlmostEqual(vdur(out), 4.0, delta=0.1)
+
     def test_background_swap_puts_the_person_over_the_backdrop(self):
         out = self.d / "bg.mp4"
         render.build_final_composite(self.base, [], None, out, self.d,

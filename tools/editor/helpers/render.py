@@ -1201,7 +1201,17 @@ def build_final_composite(
         if ov.get("fade_out"):
             fo = float(ov["fade_out"])
             fade = f",format=yuva420p,fade=t=out:st={float(ov['duration']) - fo:.3f}:d={fo:.3f}:alpha=1"
-        filter_parts.append(f"[{idx}:v]setpts=PTS-STARTPTS{fade},tpad=start_duration={t:.3f}:color=black@0[a{idx}]")
+        # "shift_up": move a full-frame graphic up by N px (e.g. clear of the captions), refilling the bottom
+        # with "fill" (its own background colour)
+        shift = ""
+        if ov.get("scale_top"):   # shrink a full-frame graphic toward its top edge, refill around it
+            k = float(ov["scale_top"])
+            shift += (f",scale=trunc(iw*{k}/2)*2:-2,pad=trunc(iw/{k}/2)*2:trunc(ih/{k}/2)*2:(ow-iw)/2:0"
+                      f":color={ov.get('fill', '0x0C1214')}")
+        if ov.get("shift_up"):
+            n = int(ov["shift_up"])
+            shift += f",crop=iw:ih-{n}:0:{n},pad=iw:ih+{n}:0:0:color={ov.get('fill', '0x0C1214')}"
+        filter_parts.append(f"[{idx}:v]setpts=PTS-STARTPTS{shift}{fade},tpad=start_duration={t:.3f}:color=black@0[a{idx}]")
 
     def chain(cur: str, over_captions: bool) -> str:
         for idx, ov in enumerate(overlays, start=1):
