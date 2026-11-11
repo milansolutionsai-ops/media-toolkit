@@ -751,11 +751,13 @@ def ebur128_levels(path: Path) -> tuple[float | None, float | None]:
     return (float(i.group(1)) if i else None, max(ms) if ms else None)
 
 
-def bg_zoom_expr(windows: list[tuple[float, float, float]]) -> str:
-    """zoompan z for the background: the punch-in zoom inside each (start, end, zoom) window, else 1."""
+def bg_zoom_expr(windows: list[tuple[float, float, float]], fps: float = 30) -> str:
+    """zoompan z for the background: the punch-in zoom inside each (start, end, zoom) window, else 1.
+    Keyed on the output frame index (`on`), the last zoomed frame being the one before the cut: timestamp
+    matching (`it`) held the zoom one frame past the person's zoom-out, a visible gap (2026-11-11)."""
     z = "1"
     for a, b, f in windows:
-        z = f"if(between(it,{a:.3f},{b:.3f}),{f:g},{z})"
+        z = f"if(between(on,{round(a * fps)},{round(b * fps) - 1}),{f:g},{z})"
     return z
 
 
@@ -1146,7 +1148,7 @@ def build_final_composite(
     # Background swap: backdrop image under the person
     if background:
         inputs += ["-loop", "1", "-framerate", str(fps), "-i", str(resolve_path(str(background["file"]), edit_dir))]
-        zoom = bg_zoom_expr(background.get("zooms") or [])
+        zoom = bg_zoom_expr(background.get("zooms") or [], fps)
         zp = (f",zoompan=z='{zoom}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s={W}x{H}:fps={fps}"
               if zoom != "1" else "")
         filter_parts.append(f"[{nxt}:v]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},setsar=1"

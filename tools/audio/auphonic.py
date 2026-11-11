@@ -1,6 +1,7 @@
 """Auphonic: one-pass "studio voice" processing through its API (leveler, noise and hum reduction, loudness).
 
-  auphonic.py IN [-o OUT] [--loudness -14] [--denoise 100] [--preset NAME] [--fetch UUID]
+  auphonic.py IN [-o OUT] [--loudness -14] [--denoise 100] [--method classic|static|dynamic|speech_isolation]
+              [--deverb DB] [--leveler PCT] [--preset NAME] [--fetch UUID]
 
 Uploads IN (audio or video), runs a production, waits, downloads the processed audio to OUT
 (default: IN's name + .auphonic.wav next to IN). Needs env AUPHONIC_API_KEY (Account > API key on
@@ -46,12 +47,27 @@ def multipart(fields: dict[str, str], file_field: str, path: Path) -> tuple[byte
     return b"".join(parts) + f"--{b}--\r\n".encode(), f"multipart/form-data; boundary={b}"
 
 
-def process(src: Path, out: Path, loudness: float = -14, denoise: int = 100, preset: str | None = None) -> Path:
-    fields = {"title": src.stem, "action": "start", "loudnesstarget": str(loudness),
-              "denoise": "true", "denoiseamount": str(denoise), "output_files": json.dumps([{"format": "wav"}])}
+def fields(title: str, loudness: float = -14, denoise: int = 100, method: str | None = None,
+           deverb: int | None = None, leveler: int | None = None) -> dict[str, str]:
+    """Production fields. denoise/deverb are dB of reduction (0 = full, -1 = off); a gentler denoise
+    (e.g. 12) avoids the hard cut-offs at pauses. deverb needs method static/dynamic/speech_isolation."""
+    f = {"title": title, "action": "start", "loudnesstarget": str(loudness),
+         "denoise": "true", "denoiseamount": str(denoise), "output_files": json.dumps([{"format": "wav"}])}
+    if method:
+        f["denoisemethod"] = method
+    if deverb is not None:
+        f["deverbamount"] = str(deverb)
+    if leveler is not None:
+        f["levelerstrength"] = str(leveler)
+    return f
+
+
+def process(src: Path, out: Path, loudness: float = -14, denoise: int = 100, preset: str | None = None,
+            method: str | None = None, deverb: int | None = None, leveler: int | None = None) -> Path:
+    fields_ = fields(src.stem, loudness, denoise, method, deverb, leveler)
     if preset:
-        fields["preset"] = preset
-    body, ctype = multipart(fields, "input_file", src)
+        fields_["preset"] = preset
+    body, ctype = multipart(fields_, "input_file", src)
     prod = _req(f"{API}/simple/productions.json", body, {"Content-Type": ctype})["data"]
     pid = prod["uuid"]
     print(f"auphonic production {pid} started", flush=True)
@@ -81,11 +97,15 @@ def main(argv=None) -> None:
     ap.add_argument("-o", "--output", type=Path)
     ap.add_argument("--loudness", type=float, default=-14)
     ap.add_argument("--denoise", type=int, default=100)
+    ap.add_argument("--method", choices=["classic", "static", "dynamic", "speech_isolation"])
+    ap.add_argument("--deverb", type=int, help="reverb reduction in dB (0 full, -1 off)")
+    ap.add_argument("--leveler", type=int, help="leveler strength %% (default 100)")
     ap.add_argument("--preset")
     ap.add_argument("--fetch", metavar="UUID", help="only download an already finished production")
     a = ap.parse_args(argv)
     out = a.output or a.input.with_suffix(".auphonic.wav")
-    print("done:", download(a.fetch, out) if a.fetch else process(a.input, out, a.loudness, a.denoise, a.preset))
+    print("done:", download(a.fetch, out) if a.fetch else process(a.input, out, a.loudness, a.denoise, a.preset,
+                                                                         a.method, a.deverb, a.leveler))
 
 
 if __name__ == "__main__":

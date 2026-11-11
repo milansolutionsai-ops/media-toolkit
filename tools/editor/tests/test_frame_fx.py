@@ -72,8 +72,9 @@ class FilterTextTests(unittest.TestCase):
         self.assertIn("40", f)
 
     def test_background_zoom_follows_punch_ins(self):
-        z = render.bg_zoom_expr([(1.0, 2.0, 1.18)])
-        self.assertIn("between(it,1.000,2.000)", z)
+        # frame-exact: output frame index, last zoomed frame is the one before the cut (it lagged a frame)
+        z = render.bg_zoom_expr([(1.0, 2.0, 1.18)], 30)
+        self.assertIn("between(on,30,59)", z)
         self.assertIn("1.18", z)
         self.assertEqual(render.bg_zoom_expr([]), "1")
 
