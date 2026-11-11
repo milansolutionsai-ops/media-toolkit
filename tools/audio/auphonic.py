@@ -1,6 +1,6 @@
 """Auphonic: one-pass "studio voice" processing through its API (leveler, noise and hum reduction, loudness).
 
-  auphonic.py IN [-o OUT] [--loudness -14] [--denoise 100] [--preset NAME]
+  auphonic.py IN [-o OUT] [--loudness -14] [--denoise 100] [--preset NAME] [--fetch UUID]
 
 Uploads IN (audio or video), runs a production, waits, downloads the processed audio to OUT
 (default: IN's name + .auphonic.wav next to IN). Needs env AUPHONIC_API_KEY (Account > API key on
@@ -30,8 +30,11 @@ def _key() -> str:
 
 def _req(url: str, data: bytes | None = None, headers: dict | None = None) -> dict:
     r = urllib.request.Request(url, data=data, headers={"Authorization": f"bearer {_key()}", **(headers or {})})
-    with urllib.request.urlopen(r, timeout=300) as resp:
-        return json.loads(resp.read())
+    try:
+        with urllib.request.urlopen(r, timeout=300) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:   # Auphonic explains a 400 in the body
+        sys.exit(f"auphonic HTTP {e.code}: {e.read().decode(errors='replace')[:800]}")
 
 
 def multipart(fields: dict[str, str], file_field: str, path: Path) -> tuple[bytes, str]:
@@ -59,10 +62,15 @@ def process(src: Path, out: Path, loudness: float = -14, denoise: int = 100, pre
         if "error" in str(st.get("status_string", "")).lower():
             sys.exit(f"auphonic error: {st}")
         time.sleep(5)
-    files = _req(f"{API}/production/{pid}.json")["data"]["output_files"]
-    url = files[0]["download_url"]
-    with urllib.request.urlopen(urllib.request.Request(url, headers={"Authorization": f"bearer {_key()}"}),
-                                timeout=300) as resp:
+    return download(pid, out)
+
+
+def download(pid: str, out: Path) -> Path:
+    """Fetch a finished production's first output file. With an API key the token goes in the URL
+    (bearer_token=...); the Authorization header is refused (HTTP 400) on download links."""
+    url = _req(f"{API}/production/{pid}.json")["data"]["output_files"][0]["download_url"]
+    url += ("&" if "?" in url else "?") + "bearer_token=" + _key()
+    with urllib.request.urlopen(url, timeout=300) as resp:
         out.write_bytes(resp.read())
     return out
 
@@ -74,9 +82,10 @@ def main(argv=None) -> None:
     ap.add_argument("--loudness", type=float, default=-14)
     ap.add_argument("--denoise", type=int, default=100)
     ap.add_argument("--preset")
+    ap.add_argument("--fetch", metavar="UUID", help="only download an already finished production")
     a = ap.parse_args(argv)
     out = a.output or a.input.with_suffix(".auphonic.wav")
-    print("done:", process(a.input, out, a.loudness, a.denoise, a.preset))
+    print("done:", download(a.fetch, out) if a.fetch else process(a.input, out, a.loudness, a.denoise, a.preset))
 
 
 if __name__ == "__main__":
