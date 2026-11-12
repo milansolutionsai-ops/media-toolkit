@@ -1,16 +1,21 @@
 """Auphonic: one-pass "studio voice" processing through its API (leveler, noise and hum reduction, loudness).
 
-  auphonic.py IN [-o OUT] [--loudness -14] [--denoise 100] [--method classic|static|dynamic|speech_isolation]
-              [--deverb DB] [--leveler PCT] [--preset NAME] [--fetch UUID]
+  auphonic.py IN [-o OUT] [--loudness -14] [--denoise 12] [--method dynamic] [--deverb 0] [--leveler 80]
+              [--preset NAME] [--fetch UUID]
 
 Uploads IN (audio or video), runs a production, waits, downloads the processed audio to OUT
 (default: IN's name + .auphonic.wav next to IN). Needs env AUPHONIC_API_KEY (Account > API key on
-auphonic.com); the key is read by name and never printed. Free plan: 2 hours of audio a month.
+auphonic.com); the key is read by name and never printed. Free plan: 2 hours of audio a month, and it
+appends a jingle, so the output is trimmed back to IN's length.
+Defaults are the chain Milan picked blind (round 9): dynamic denoise at 12 dB (soft pauses, no hard
+cut-offs), full reverb removal, leveler 80%. Speech isolation (--method speech_isolation --denoise 18
+--deverb 6) is cleaner on a noisy room but sounds more processed.
 Docs: https://auphonic.com/help/api/simple_api.html, https://auphonic.com/help/api/query.html
 """
 from __future__ import annotations
 
 import argparse
+import subprocess
 import json
 import os
 import sys
@@ -47,8 +52,8 @@ def multipart(fields: dict[str, str], file_field: str, path: Path) -> tuple[byte
     return b"".join(parts) + f"--{b}--\r\n".encode(), f"multipart/form-data; boundary={b}"
 
 
-def fields(title: str, loudness: float = -14, denoise: int = 100, method: str | None = None,
-           deverb: int | None = None, leveler: int | None = None) -> dict[str, str]:
+def fields(title: str, loudness: float = -14, denoise: int = 12, method: str | None = "dynamic",
+           deverb: int | None = 0, leveler: int | None = 80) -> dict[str, str]:
     """Production fields. denoise/deverb are dB of reduction (0 = full, -1 = off); a gentler denoise
     (e.g. 12) avoids the hard cut-offs at pauses. deverb needs method static/dynamic/speech_isolation."""
     f = {"title": title, "action": "start", "loudnesstarget": str(loudness),
@@ -62,8 +67,8 @@ def fields(title: str, loudness: float = -14, denoise: int = 100, method: str | 
     return f
 
 
-def process(src: Path, out: Path, loudness: float = -14, denoise: int = 100, preset: str | None = None,
-            method: str | None = None, deverb: int | None = None, leveler: int | None = None) -> Path:
+def process(src: Path, out: Path, loudness: float = -14, denoise: int = 12, preset: str | None = None,
+            method: str | None = "dynamic", deverb: int | None = 0, leveler: int | None = 80) -> Path:
     fields_ = fields(src.stem, loudness, denoise, method, deverb, leveler)
     if preset:
         fields_["preset"] = preset
@@ -78,7 +83,22 @@ def process(src: Path, out: Path, loudness: float = -14, denoise: int = 100, pre
         if "error" in str(st.get("status_string", "")).lower():
             sys.exit(f"auphonic error: {st}")
         time.sleep(5)
-    return download(pid, out)
+    return trim_to(src, download(pid, out))
+
+
+def _dur(path: Path) -> float:
+    return float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+                                 str(path)], capture_output=True, text=True, check=True).stdout)
+
+
+def trim_to(src: Path, out: Path) -> Path:
+    """Cut the free plan's jingle: trim OUT to SRC's length when it runs longer."""
+    keep = _dur(src)
+    if _dur(out) > keep + 0.05:
+        tmp = out.with_name(out.stem + ".trim" + out.suffix)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(out), "-t", f"{keep:.3f}", str(tmp)], check=True)
+        tmp.replace(out)
+    return out
 
 
 def download(pid: str, out: Path) -> Path:
@@ -96,15 +116,15 @@ def main(argv=None) -> None:
     ap.add_argument("input", type=Path)
     ap.add_argument("-o", "--output", type=Path)
     ap.add_argument("--loudness", type=float, default=-14)
-    ap.add_argument("--denoise", type=int, default=100)
-    ap.add_argument("--method", choices=["classic", "static", "dynamic", "speech_isolation"])
-    ap.add_argument("--deverb", type=int, help="reverb reduction in dB (0 full, -1 off)")
-    ap.add_argument("--leveler", type=int, help="leveler strength %% (default 100)")
+    ap.add_argument("--denoise", type=int, default=12, help="dB of noise reduction (0 = full)")
+    ap.add_argument("--method", default="dynamic", choices=["classic", "static", "dynamic", "speech_isolation"])
+    ap.add_argument("--deverb", type=int, default=0, help="reverb reduction in dB (0 full, -1 off)")
+    ap.add_argument("--leveler", type=int, default=80, help="leveler strength %%")
     ap.add_argument("--preset")
     ap.add_argument("--fetch", metavar="UUID", help="only download an already finished production")
     a = ap.parse_args(argv)
     out = a.output or a.input.with_suffix(".auphonic.wav")
-    print("done:", download(a.fetch, out) if a.fetch else process(a.input, out, a.loudness, a.denoise, a.preset,
+    print("done:", trim_to(a.input, download(a.fetch, out)) if a.fetch else process(a.input, out, a.loudness, a.denoise, a.preset,
                                                                          a.method, a.deverb, a.leveler))
 
 
