@@ -4,6 +4,10 @@
       First time: round 1 ("First cut"). Again: a fix round; --fixes must answer every open note:
       {"answers": [{"note_id": "...", "explanation": "...", "before": [s, e]?, "after": [s, e]?}]}
       (frame ranges; missing ranges default to the note's own frames)
+  plan --project P --title T --plan PLAN.json [--slug S]
+      Post (or revise) the edit plan before building: {"fps"?: "30", "width"?: 1080, "height"?: 1920,
+      "rows": [{"start": s, "end": s, "text": "what happens", "still"?: "path.jpg"}]}. The reviewer OKs or
+      marks each row; register the first cut only after the plan was sent back.
   claim ID      pick up sent feedback (ID = project/slug)
   show ID       print the latest sent round: notes, frames, seconds, verdicts, still paths
   list          every video with status and round
@@ -104,7 +108,14 @@ def cmd_register(a, root: Path) -> None:
 
     v = store.load_video(vdir)
     prev = store.latest_round(v)
-    if v["status"] in ("waiting", "approved"):  # a new cut with nothing to answer: back to the reviewer
+    if v["status"] == "plan_waiting":
+        die(f"{v['id']}: the edit plan hasn't been reviewed yet")
+    if v["status"] == "plan_sent":  # first cut after the plan: take the real render's size and rate
+        p = media.probe(render)
+        v.update({"fps": media.snap_fps(p["fps"]), "width": p["width"], "height": p["height"],
+                  "orientation": "vertical" if p["height"] > p["width"] else "horizontal"})
+        store.save_json_atomic(vdir / "video.json", v)
+    if v["status"] in ("waiting", "approved", "plan_sent"):  # a new cut with nothing to answer: back to the reviewer
         n = store.add_round(vdir, None)
         try:
             build_round(vdir, n, render, v["fps"])
@@ -150,9 +161,55 @@ def cmd_register(a, root: Path) -> None:
     print(f"registered {v['id']} round {n} (fixes ready to check)")
 
 
+def cmd_plan(a, root: Path) -> None:
+    if not re.fullmatch(store.SAFE_NAME, a.project) or ".." in a.project:
+        die(f"project folder name '{a.project}' must use only letters, digits, '-', '_' or '.'")
+    spec = json.loads(Path(a.plan).read_text(encoding="utf-8"))
+    rows = []
+    for i, r in enumerate(spec.get("rows") or []):
+        start, end, text = float(r["start"]), float(r["end"]), str(r.get("text", "")).strip()
+        if end <= start or not text:
+            die(f"plan row {i + 1} needs start < end and text")
+        still = Path(r["still"]) if r.get("still") else None
+        if still and not still.is_file():
+            die(f"plan row {i + 1}: still not found: {still}")
+        rows.append({"id": f"p{i + 1}", "start": start, "end": end, "text": text, "_still": still})
+    if not rows:
+        die("the plan has no rows")
+    slug = a.slug or store.unique_slug(root, a.project, store.slugify(a.title), a.title)
+    if not re.fullmatch(store.SAFE_NAME, slug):
+        die(f"slug '{slug}' must use only letters, digits, '-', '_' or '.'")
+    vdir = store.video_dir(root, a.project, slug)
+    if (vdir / "video.json").exists():
+        v = store.load_video(vdir)
+        if v["rounds"] or not v["status"].startswith("plan_"):
+            die(f"{v['id']} already has a cut: plans come before the first cut")
+    else:
+        store.new_video(root, a.project, a.title, slug, str(spec.get("fps", "30")),
+                        int(spec.get("width", 1080)), int(spec.get("height", 1920)))
+    shutil.rmtree(vdir / "plan", ignore_errors=True)
+    for r in rows:
+        still = r.pop("_still")
+        r["still"] = bool(still)
+        if still:
+            media.plan_still(still, vdir / "plan" / f"{r['id']}.jpg")
+    store.set_plan(vdir, rows)
+    store.rebuild_index(root)
+    print(f"plan posted for {a.project}/{slug} ({len(rows)} rows, waiting for review)")
+
+
 def cmd_claim(a, root: Path) -> None:
     vdir = vdir_for(root, a.id)
     v = store.load_video(vdir)
+    if v["status"] == "plan_sent":
+        try:
+            store.claim_file(vdir / "plan" / "claim.json", datetime.now(timezone.utc))
+        except store.ClaimTaken as e:
+            print(f"already picked up at {datetime.fromisoformat(e.at).astimezone().strftime('%H:%M')}")
+            sys.exit(3)
+        store.rebuild_index(root)
+        print(f"claimed {a.id} edit plan")
+        return
     if v["status"] != "sent":
         die(f"nothing to claim: {a.id} is '{v['status']}'", 4)
     n = store.latest_round(v)
@@ -169,6 +226,16 @@ def cmd_claim(a, root: Path) -> None:
 def cmd_show(a, root: Path) -> None:
     vdir = vdir_for(root, a.id)
     v = store.load_video(vdir)
+    if v["status"] == "plan_sent":
+        plan = store.read_json(vdir / "plan.json")
+        print(f"{v['title']} ({v['id']}), edit plan v{plan['version']}")
+        for r in plan["rows"]:
+            verdict = plan["verdicts"].get(r["id"], "?")
+            note = plan["notes"].get(r["id"], "")
+            print(f"- {r['id']} {r['start']:.2f}-{r['end']:.2f}s [{verdict}] {r['text']}" + (f" -> {note}" if note else ""))
+        if plan.get("note"):
+            print(f"  overall: {plan['note']}")
+        return
     sent = [r for r in v["rounds"] if r["sent_at"]]
     if not sent:
         die(f"{a.id} has no sent notes yet", 4)
@@ -201,12 +268,17 @@ def main(argv=None) -> None:
     r.add_argument("--render", required=True)
     r.add_argument("--slug")
     r.add_argument("--fixes")
+    pl = sub.add_parser("plan")
+    pl.add_argument("--project", required=True)
+    pl.add_argument("--title", required=True)
+    pl.add_argument("--plan", required=True)
+    pl.add_argument("--slug")
     for name in ("claim", "show"):
         sub.add_parser(name).add_argument("id")
     sub.add_parser("list")
     a = ap.parse_args(argv)
     root = review_root()
-    {"register": cmd_register, "claim": cmd_claim, "show": cmd_show, "list": cmd_list}[a.cmd](a, root)
+    {"register": cmd_register, "plan": cmd_plan, "claim": cmd_claim, "show": cmd_show, "list": cmd_list}[a.cmd](a, root)
 
 
 if __name__ == "__main__":

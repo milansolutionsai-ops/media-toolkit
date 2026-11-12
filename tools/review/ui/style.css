@@ -137,3 +137,13 @@ textarea:focus { outline: none; border-color: var(--teal); }
 .cnote:focus { outline: none; border-color: var(--teal); }
 .work.horizontal .vbox { display: block; width: 100%; }
 .work.horizontal .vbox video { width: 100%; }
+.status.plan_waiting { color: var(--teal); }
+.status.plan_sent { color: var(--muted); }
+.plan { display: flex; flex-direction: column; gap: 10px; max-width: 760px; }
+.planrow { display: flex; gap: 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px; }
+.pstill { width: 96px; flex: none; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 6px; background: var(--panel-2); }
+.pstill.none { border: 1px dashed var(--line); background: none; }
+.pbody { display: flex; flex-direction: column; gap: 6px; min-width: 0; flex: 1; }
+.ptime { font: 13px Consolas, monospace; color: var(--muted); }
+.ptext { font-size: 15px; line-height: 1.4; }
+.ghost.change.on { border-color: var(--red); color: var(--red); }

@@ -73,3 +73,15 @@ test("announces style reactions with style.py path", () => {
   assert.match(r.stdout, /Style reactions ready: my-project \/ Round two, Style round 2, 6 candidates\./);
   assert.ok(r.stdout.includes(`python "${cli}" claim my-project 2`), r.stdout);
 });
+
+test("announces a sent edit plan", () => {
+  const root = setup([video({ status: "plan_sent", round: 0, round_label: "Edit plan", notes_count: 2 })]);
+  const r = run(root, join(root, "my-project"));
+  assert.match(r.stdout, /Edit plan back: my-project \/ 03 X, 2 lines to change\./);
+  assert.ok(r.stdout.includes("claim my-project/03-x"), r.stdout);
+});
+
+test("an approved plan says build it", () => {
+  const root = setup([video({ status: "plan_sent", round: 0, round_label: "Edit plan", notes_count: 0 })]);
+  assert.match(run(root, join(root, "my-project")).stdout, /Edit plan back: my-project \/ 03 X, approved as is\./);
+});

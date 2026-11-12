@@ -24,6 +24,19 @@ Frame ranges are optional; they default to the note's own frames. Give `after` w
 Loop: register → reviewer sends notes → the hook prints "Feedback ready" on the next prompt → `claim` →
 `show` (notes, frames, seconds, stills of the exact frames) → fix → `register --fixes` → reviewer checks.
 
+## Edit plan (before the first cut)
+
+For videos with motion moments: post the plan first, build only after the reviewer sends it back.
+
+```bash
+python media-toolkit/tools/review/review.py plan --project my-project --title "My video" --plan plan.json
+```
+
+`plan.json`: `{"rows": [{"start": 0.0, "end": 2.8, "text": "Hook, face, HONEST appears", "still": "s1.jpg"}]}`
+(seconds on the output timeline; `still` optional, any image). The reviewer marks every line OK or Change (with a
+reason) and sends; the hook prints "Edit plan back"; `claim` + `show` print the lines. Revise with `plan` again
+(old version kept as `plan-vN.json`), or `register` the first cut. Statuses: `plan_waiting` → `plan_sent` → `waiting`.
+
 ## Style rounds
 
 One-variable candidates the reviewer sorts into Keep / Maybe / Drop (see `docs/STYLE_ONBOARDING.md`):

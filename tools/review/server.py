@@ -26,7 +26,7 @@ PORT = 47615
 AUTHOR = os.environ.get("REVIEW_AUTHOR", "reviewer")
 UI_DIR = HERE / "ui"
 NAME = r"[A-Za-z0-9_.-]+"
-ASSET_RE = re.compile(r"^(r\d+\.mp4|r\d+/(sprite\.jpg|sprite\.json|peaks\.json)|fixcheck-r\d+/[A-Za-z0-9_-]+(-\d+)?\.(jpg|mp4))$")
+ASSET_RE = re.compile(r"^(r\d+\.mp4|r\d+/(sprite\.jpg|sprite\.json|peaks\.json)|fixcheck-r\d+/[A-Za-z0-9_-]+(-\d+)?\.(jpg|mp4)|plan/p\d+\.jpg)$")
 TYPES = {".mp4": "video/mp4", ".jpg": "image/jpeg", ".json": "application/json", ".html": "text/html; charset=utf-8",
          ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml",
          ".png": "image/png", ".webmanifest": "application/manifest+json"}
@@ -44,9 +44,14 @@ def video_summary(vdir: Path, v: dict) -> dict:
     n = store.latest_round(v)
     notes = store.round_notes(vdir, n) if n else {"notes": []}
     claim = store.read_json(vdir / f"r{n}" / "claim.json") if n else None
+    planning = v["status"].startswith("plan_")
+    if planning:
+        claim = store.read_json(vdir / "plan" / "claim.json")
     return {"id": v["id"], "title": v["title"], "project": v["project"], "status": v["status"],
             "status_label": store.STATUS_LABELS.get(v["status"], v["status"]),
-            "round_label": store.round_label(n) if n else "", "notes_count": store.feedback_count(notes),
+            "round_label": store.PLAN_LABEL if planning else (store.round_label(n) if n else ""),
+            "notes_count": store.plan_changes(store.read_json(vdir / "plan.json")) if planning
+            else store.feedback_count(notes),
             "claimed_at": (claim or {}).get("at"), "updated": v.get("updated")}
 
 
@@ -76,7 +81,30 @@ def video_detail(vdir: Path, v: dict) -> dict:
     out = video_summary(vdir, v)
     out.update({k: v[k] for k in ("fps", "width", "height", "orientation", "windows")})
     out["rounds"] = rounds
+    plan = store.read_json(vdir / "plan.json")
+    out["plan"] = None if not plan else {
+        "version": plan["version"], "sent": bool(plan.get("sent_at")), "verdicts": plan.get("verdicts", {}),
+        "notes": plan.get("notes", {}), "note": plan.get("note", ""),
+        "rows": [{"id": r["id"], "start": r["start"], "end": r["end"], "text": r["text"],
+                  "still_url": f"{base}/plan/{r['id']}.jpg" if r.get("still") else None} for r in plan["rows"]]}
     return out
+
+
+def handle_plan_send(root: Path, vdir: Path, body: dict) -> dict:
+    v = store.load_video(vdir)
+    if v["status"] != "plan_waiting":
+        raise ValueError("this plan can't be sent")
+    plan = store.read_json(vdir / "plan.json")
+    ids = [r["id"] for r in plan["rows"]]
+    verdicts = {k: x for k, x in (body.get("verdicts") or {}).items() if k in ids and x in ("ok", "change")}
+    if len(verdicts) != len(ids):
+        raise ValueError("every line needs OK or Change")
+    notes = {k: str(t).strip() for k, t in (body.get("notes") or {}).items() if k in ids and str(t).strip()}
+    if any(x == "change" and k not in notes for k, x in verdicts.items()):
+        raise ValueError("say what to change on every line marked Change")
+    status = store.apply_plan_send(vdir, verdicts, notes, str(body.get("note") or "").strip())
+    store.rebuild_index(root)
+    return {"status": status}
 
 
 def style_summary(r: dict) -> dict:
@@ -260,13 +288,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"status": "sent"})
             except (ValueError, KeyError, TypeError) as e:
                 return self._json({"error": str(e)}, 400)
-        m = re.fullmatch(rf"/api/videos/({NAME})/({NAME})/send", path)
-        vdir = _vdir(self.root, *m.groups()) if m else None
+        m = re.fullmatch(rf"/api/videos/({NAME})/({NAME})/(plan/)?send", path)
+        vdir = _vdir(self.root, m.group(1), m.group(2)) if m else None
         if not vdir:
             return self._404()
         try:
             body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-            return self._json(handle_send(self.root, vdir, body))
+            fn = handle_plan_send if m.group(3) else handle_send
+            return self._json(fn(self.root, vdir, body))
         except (ValueError, KeyError, TypeError) as e:
             return self._json({"error": str(e)}, 400)
 

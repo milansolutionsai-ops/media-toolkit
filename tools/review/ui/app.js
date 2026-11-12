@@ -58,13 +58,14 @@ function zonePicker() {
 // ---------- pointer line (feedback waiting for Claude) ----------
 async function refreshPointer() {
   const list = await api("/api/videos");
-  const sent = list.filter((v) => v.status === "sent" && !v.claimed_at);
+  const sent = list.filter((v) => (v.status === "sent" || v.status === "plan_sent") && !v.claimed_at);
   const box = document.getElementById("pointer");
   box.hidden = !sent.length;
   if (!sent.length) return;
   const v = sent[0];
   const text = (v.kind === "style"
     ? `Style reactions ready: ${v.project} / ${v.title}, ${v.round_label}, ${v.notes_count} candidates`
+    : v.status === "plan_sent" ? `Edit plan back: ${v.project} / ${v.title}, ${v.notes_count} lines to change`
     : `Feedback ready: ${v.project} / ${v.title}, ${v.round_label}, ${v.notes_count} notes`) +
     (sent.length > 1 ? ` (+${sent.length - 1} more)` : "");
   document.getElementById("pointer-text").textContent = text;
@@ -98,9 +99,72 @@ async function inbox() {
   draw();
 }
 
+// ---------- edit plan ----------
+const secs = (t) => `${Math.floor(t / 60)}:${(t % 60).toFixed(1).padStart(4, "0")}`;
+
+function planRows(d, open, verdicts, notes, onChange) {
+  return d.plan.rows.map((r) => {
+    const btn = (val, label) => h("button", { class: `ghost ${val}`, disabled: !open || null,
+      onclick: () => { verdicts[r.id] = val; paint(); onChange(); } }, label);
+    const ok = btn("ok", "OK"), change = btn("change", "Change");
+    const note = h("input", { class: "cnote", placeholder: "What should change?", disabled: !open || null,
+      oninput: () => { notes[r.id] = note.value; onChange(); } });
+    note.value = notes[r.id] || "";
+    const paint = () => {
+      ok.classList.toggle("on", verdicts[r.id] === "ok");
+      change.classList.toggle("on", verdicts[r.id] === "change");
+      note.hidden = verdicts[r.id] !== "change";
+    };
+    paint();
+    return h("div", { class: "planrow" },
+      r.still_url ? h("img", { class: "pstill", src: r.still_url, alt: "" }) : h("div", { class: "pstill none" }),
+      h("div", { class: "pbody" },
+        h("div", { class: "ptime" }, `${secs(r.start)} → ${secs(r.end)}`),
+        h("div", { class: "ptext" }, r.text),
+        h("div", { class: "verdict" }, ok, change), note));
+  });
+}
+
+function planPage(d, head) {
+  keysBar.hidden = true;
+  const open = d.status === "plan_waiting";
+  const verdicts = { ...d.plan.verdicts }, notes = { ...d.plan.notes };
+  const overall = h("textarea", { placeholder: "Anything about the plan as a whole? (optional)", disabled: !open || null });
+  overall.value = d.plan.note || "";
+  const sendBtn = h("button", { class: "primary" });
+  const update = () => {
+    const left = d.plan.rows.filter((r) => !verdicts[r.id]).length;
+    const changes = d.plan.rows.filter((r) => verdicts[r.id] === "change");
+    const unsaid = changes.filter((r) => !(notes[r.id] || "").trim()).length;
+    sendBtn.disabled = !open || left > 0 || unsaid > 0;
+    sendBtn.textContent = !open ? "Plan sent" : left ? `OK or change ${left} more line${left > 1 ? "s" : ""}`
+      : unsaid ? "Say what to change" : changes.length
+        ? `Send ${changes.length} change${changes.length > 1 ? "s" : ""} to Claude` : "Approve plan";
+  };
+  sendBtn.onclick = async () => {
+    sendBtn.disabled = true;
+    try {
+      await api(`/api/videos/${d.id}/plan/send`, { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verdicts, notes, note: overall.value }) });
+      location.hash = "#/";
+    } catch (err) { sendBtn.textContent = `Couldn't send: ${err.message}`; sendBtn.disabled = false; }
+  };
+  app.replaceChildren(head,
+    h("p", { class: "meta" }, "What happens when, before anything gets built. OK each line, or say what to change."),
+    h("div", { class: "plan" }, planRows(d, open, verdicts, notes, update)),
+    h("div", { class: "editor", style: "margin-top:16px" }, overall),
+    h("div", { class: "sendbar", style: "margin-top:12px" }, sendBtn));
+  update();
+}
+
 // ---------- round history ----------
 function history(d) {
   const box = h("div", { class: "history" }, h("h2", { class: "panel-title" }, "Rounds"));
+  if (d.plan) {
+    box.append(h("details", {}, h("summary", {}, "Edit plan"),
+      d.plan.rows.map((r) => h("div", { class: "item" }, h("b", {}, `${secs(r.start)} `), r.text,
+        d.plan.verdicts[r.id] === "change" ? ` (change: ${d.plan.notes[r.id] || ""})` : ""))));
+  }
   for (const r of d.rounds) {
     const items = [];
     for (const a of r.answers) {
@@ -251,9 +315,10 @@ async function videoPage(id) {
   const round = d.rounds[d.rounds.length - 1];
   const head = h("div", { class: "vhead" }, h("h1", {}, d.title),
     h("span", { class: `status ${d.status}` }, d.status_label,
-      d.status === "sent" && d.claimed_at ? ` · picked up ${hhmm(d.claimed_at)}` : ""),
-    h("span", { class: "meta" }, `${d.project} · ${round.label}`));
+      (d.status === "sent" || d.status === "plan_sent") && d.claimed_at ? ` · picked up ${hhmm(d.claimed_at)}` : ""),
+    h("span", { class: "meta" }, `${d.project} · ${round ? round.label : d.round_label}`));
   detachKeys();
+  if (!round) return planPage(d, head);
 
   if (d.status !== "waiting" && d.status !== "fixes_ready") {
     keysBar.hidden = true;

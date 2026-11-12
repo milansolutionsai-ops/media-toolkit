@@ -21,7 +21,10 @@ STATUS_LABELS = {
     "sent": "Notes sent",
     "fixes_ready": "Fixes ready to check",
     "approved": "Approved",
+    "plan_waiting": "Plan waiting for you",
+    "plan_sent": "Plan sent",
 }
+PLAN_LABEL = "Edit plan"
 
 
 class ClaimTaken(Exception):
@@ -160,6 +163,37 @@ def claim_file(path: Path, now: datetime) -> dict:
     return data
 
 
+def set_plan(vdir: Path, rows: list[dict]) -> dict:
+    """Post (or revise) the edit plan. The previous version is kept as plan-vN.json."""
+    vdir = Path(vdir)
+    old = read_json(vdir / "plan.json")
+    if old:
+        save_json_atomic(vdir / f"plan-v{old['version']}.json", old)
+    plan = {"version": (old or {}).get("version", 0) + 1, "rows": rows, "created": _now(), "sent_at": None,
+            "verdicts": {}, "notes": {}, "note": ""}
+    save_json_atomic(vdir / "plan.json", plan)
+    (vdir / "plan" / "claim.json").unlink(missing_ok=True)
+    v = load_video(vdir)
+    v["status"] = "plan_waiting"
+    _save_video(vdir, v)
+    return plan
+
+
+def apply_plan_send(vdir: Path, verdicts: dict, notes: dict, note: str) -> str:
+    vdir = Path(vdir)
+    plan = read_json(vdir / "plan.json")
+    plan.update({"verdicts": verdicts, "notes": notes, "note": note, "sent_at": _now()})
+    save_json_atomic(vdir / "plan.json", plan)
+    v = load_video(vdir)
+    v["status"] = "plan_sent"
+    _save_video(vdir, v)
+    return "plan_sent"
+
+
+def plan_changes(plan) -> int:
+    return sum(1 for x in (plan or {}).get("verdicts", {}).values() if x == "change")
+
+
 def latest_round(v: dict) -> int:
     return v["rounds"][-1]["n"] if v["rounds"] else 0
 
@@ -187,15 +221,19 @@ def rebuild_index(root: Path) -> None:
         n = latest_round(v)
         notes = round_notes(vdir, n) if n else {"notes": [], "verdicts": {}}
         c = read_json(vdir / f"r{n}" / "claim.json") if n else None
+        planning = v["status"].startswith("plan_")
+        plan = read_json(vdir / "plan.json") or {}
+        if planning:
+            c = read_json(vdir / "plan" / "claim.json")
         out.append({
             "id": v["id"],
             "title": v["title"],
             "project": v["project"],
             "status": v["status"],
             "round": n,
-            "round_label": round_label(n) if n else "",
-            "notes_count": feedback_count(notes),
-            "sent_at": v["rounds"][-1]["sent_at"] if n else None,
+            "round_label": PLAN_LABEL if planning else (round_label(n) if n else ""),
+            "notes_count": plan_changes(plan) if planning else feedback_count(notes),
+            "sent_at": plan.get("sent_at") if planning else (v["rounds"][-1]["sent_at"] if n else None),
             "claimed_at": (c or {}).get("at"),
             "folder": vdir.relative_to(root).as_posix(),
             "kind": "video",

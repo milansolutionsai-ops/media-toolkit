@@ -111,6 +111,13 @@ def make_peaks(review: Path, dst: Path, per_second: int = 100) -> int:
     return len(vals)
 
 
+def plan_still(src: Path, dst: Path, max_w: int = 540) -> None:
+    """One plan still as a light jpg (any image or video's first frame)."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    _run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-frames:v", "1",
+          "-vf", f"scale='min({max_w},iw)':-2", "-q:v", "3", str(dst)])
+
+
 def extract_stills(review: Path, frames: list[int], out_dir: Path) -> list[Path]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
