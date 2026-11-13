@@ -10,8 +10,8 @@ SPEC.loader.exec_module(render)
 
 class SubtitlesFilterPathTests(unittest.TestCase):
     def test_windows_path_uses_forward_slashes_and_escaped_drive_colon(self):
-        got = render.subtitles_filter_path(r"C:\Users\Milan\Desktop\Video Editing\edit\master.srt")
-        self.assertEqual(got, r"C\:/Users/Milan/Desktop/Video Editing/edit/master.srt")
+        got = render.subtitles_filter_path(r"C:\Users\me\My Videos\edit\master.srt")
+        self.assertEqual(got, r"C\:/Users/me/My Videos/edit/master.srt")
 
     def test_posix_path_unchanged_apart_from_quote_escape(self):
         self.assertEqual(render.subtitles_filter_path("/tmp/it's/master.srt"),
