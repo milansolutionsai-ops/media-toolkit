@@ -6,6 +6,7 @@ Claude is told automatically, fixes, and the reviewer checks each fix before/aft
 - Runs on `127.0.0.1:47615` only. Python stdlib + ffmpeg + Node (hook). No paid APIs.
 - The reviewer sees only titles, video, notes and statuses. No file names, paths or logs.
 - Workspace root = env `REVIEW_ROOT`, default: the folder that contains `media-toolkit/`.
+- Standalone version with a quickstart for anyone: https://github.com/milansolutionsai-ops/claude-review-inbox
 
 ## For Claude
 
