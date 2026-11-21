@@ -92,11 +92,13 @@ def _dur(path: Path) -> float:
 
 
 def trim_to(src: Path, out: Path) -> Path:
-    """Cut the free plan's jingle: trim OUT to SRC's length when it runs longer."""
-    keep = _dur(src)
-    if _dur(out) > keep + 0.05:
+    """Cut the free plan's spoken tag, which is PREPENDED: drop OUT's extra length from the start, so the
+    voice stays in sync with the source picture and the last line is kept."""
+    keep, extra = _dur(src), _dur(out) - _dur(src)
+    if extra > 0.05:
         tmp = out.with_name(out.stem + ".trim" + out.suffix)
-        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(out), "-t", f"{keep:.3f}", str(tmp)], check=True)
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{extra:.3f}", "-i", str(out), "-t", f"{keep:.3f}",
+                        str(tmp)], check=True)
         tmp.replace(out)
     return out
 
