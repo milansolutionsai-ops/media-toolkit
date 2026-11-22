@@ -1092,6 +1092,11 @@ def apply_loudnorm_two_pass(
 # -------- Final compositing (Rule 1 + Rule 4) -------------------------------
 
 
+def speed_af(speed: float) -> str:
+    """Pitch-kept speed-up for voice. atempo, not rubberband: Milan's blind A/B 2026-11-22 rated rubberband 'okay', atempo 'good'."""
+    return f"atempo={speed:g}"
+
+
 def build_final_composite(
     base_path: Path,
     overlays: list[dict],
@@ -1111,7 +1116,7 @@ def build_final_composite(
 
     An overlay's optional "fade_out" (seconds) dissolves it into the base at the
     end of its window. `speed` > 1 plays the finished cut faster, pitch kept
-    (rubberband); captions and overlays are already burned in, so they stay in sync.
+    (atempo); captions and overlays are already burned in, so they stay in sync.
     If there are no overlays, no subtitles and no speed change, just copy base to out.
     """
     has_overlays = bool(overlays)
@@ -1268,11 +1273,11 @@ def build_final_composite(
                             + f"amix=inputs={len(sfx) + 1}:duration=first:normalize=0[mix]")
         amap = "[mix]"
     if sfx and speed != 1.0:   # -af can't follow a filter_complex output: speed the mix inside the graph
-        filter_parts.append(f"[mix]rubberband=tempo={speed}[mixs]")
+        filter_parts.append(f"[mix]{speed_af(speed)}[mixs]")
         amap = "[mixs]"
         audio = ["-c:a", "aac", "-b:a", "192k"]
     elif speed != 1.0:
-        audio = ["-af", f"rubberband=tempo={speed}", "-c:a", "aac", "-b:a", "192k"]
+        audio = ["-af", speed_af(speed), "-c:a", "aac", "-b:a", "192k"]
     else:
         audio = ["-c:a", "aac", "-b:a", "192k"] if sfx else ["-c:a", "copy"]
     cmd = [
